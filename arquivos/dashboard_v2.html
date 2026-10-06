@@ -1,0 +1,1929 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NLP Dashboard — Discursos da Câmara</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0a0c10;
+        --surface: #10131a;
+        --surface2: #171b24;
+        --border: #1e2330;
+        --border2: #2a3044;
+        --text: #d8dde8;
+        --dim: #6b7592;
+        --esq: #ff4d6d;
+        --cen: #ffa94d;
+        --dir: #4da6ff;
+        --semc: #92ddcc;
+        --accent: #00e5b0;
+        --accent2: #b388ff;
+        --c1: #ff4d6d;
+        --c2: #4da6ff;
+        --c3: #92ddcc;
+        --c4: #ffa94d;
+        --c5: #b388ff;
+        --c6: #69db7c;
+        --c7: #ffd43b;
+        --c8: #74c0fc;
+        --c9: #ff8787;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "IBM Plex Sans", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        font-size: 13px;
+      }
+
+      /* ── LOADER ── */
+      #loader {
+        position: fixed;
+        inset: 0;
+        background: var(--bg);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 999;
+        gap: 2rem;
+      }
+
+      #loader h1 {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 1.4rem;
+        color: var(--accent);
+        letter-spacing: -0.02em;
+      }
+
+      #loader p {
+        color: var(--dim);
+        font-size: 0.8rem;
+        max-width: 360px;
+        text-align: center;
+        line-height: 1.6;
+      }
+
+      .upload-zone {
+        border: 2px dashed var(--border2);
+        border-radius: 12px;
+        padding: 2.5rem 3rem;
+        text-align: center;
+        cursor: pointer;
+        transition:
+          border-color 0.2s,
+          background 0.2s;
+        max-width: 420px;
+        width: 100%;
+      }
+
+      .upload-zone:hover {
+        border-color: var(--accent);
+        background: rgba(0, 229, 176, 0.03);
+      }
+
+      .upload-zone input {
+        display: none;
+      }
+
+      .upload-zone .icon {
+        font-size: 2rem;
+        margin-bottom: 0.8rem;
+      }
+
+      .upload-zone .hint {
+        font-size: 0.75rem;
+        color: var(--dim);
+        margin-top: 0.5rem;
+      }
+
+      .btn-demo {
+        background: transparent;
+        border: 1px solid var(--border2);
+        color: var(--dim);
+        padding: 0.6rem 1.4rem;
+        border-radius: 6px;
+        cursor: pointer;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.72rem;
+        transition: all 0.2s;
+      }
+
+      .btn-demo:hover {
+        border-color: var(--accent2);
+        color: var(--accent2);
+      }
+
+      /* ── HEADER ── */
+      .header {
+        padding: 1.5rem 2rem 1rem;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+
+      .header-title h1 {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 1.15rem;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        color: var(--accent);
+        margin-bottom: 0.25rem;
+      }
+
+      .header-title p {
+        color: var(--dim);
+        font-size: 0.75rem;
+        line-height: 1.5;
+        max-width: 540px;
+      }
+
+      .tag {
+        display: inline-block;
+        padding: 0.2rem 0.6rem;
+        border-radius: 3px;
+        font-size: 0.65rem;
+        font-family: "IBM Plex Mono", monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-right: 0.3rem;
+      }
+
+      .tag-esq {
+        background: rgba(255, 77, 109, 0.15);
+        color: var(--esq);
+      }
+
+      .tag-cen {
+        background: rgba(255, 169, 77, 0.15);
+        color: var(--cen);
+      }
+
+      .tag-dir {
+        background: rgba(77, 166, 255, 0.15);
+        color: var(--dir);
+      }
+
+      .tag-neu {
+        background: rgba(107, 117, 146, 0.2);
+        color: var(--dim);
+      }
+
+      /* ── STATS BAR ── */
+      .stats-bar {
+        display: flex;
+        gap: 0;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        overflow-x: auto;
+      }
+
+      .stat {
+        padding: 0.9rem 1.4rem;
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        min-width: 100px;
+      }
+
+      .stat-val {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--accent);
+        letter-spacing: -0.03em;
+      }
+
+      .stat-lbl {
+        font-size: 0.65rem;
+        color: var(--dim);
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+      }
+
+      /* ── TABS ── */
+      .tabs {
+        display: flex;
+        gap: 0;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        overflow-x: auto;
+        padding: 0 1rem;
+      }
+
+      .tab {
+        padding: 0.8rem 1.1rem;
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: var(--dim);
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        transition: all 0.15s;
+        white-space: nowrap;
+        letter-spacing: 0.01em;
+      }
+
+      .tab:hover {
+        color: var(--text);
+      }
+
+      .tab.active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+      }
+
+      /* ── CONTENT ── */
+      .content {
+        padding: 1.5rem 2rem;
+      }
+
+      .section {
+        display: none;
+      }
+
+      .section.active {
+        display: block;
+      }
+
+      /* ── GRID ── */
+      .grid {
+        display: grid;
+        gap: 1rem;
+      }
+
+      .grid-2 {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .grid-3 {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .col-span-2 {
+        grid-column: span 2;
+      }
+
+      .col-span-3 {
+        grid-column: span 3;
+      }
+
+      /* ── CARD ── */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 1.1rem;
+      }
+
+      .card-title {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--dim);
+        margin-bottom: 0.9rem;
+      }
+
+      canvas {
+        max-height: 340px;
+      }
+
+      /* ── INSIGHT ── */
+      .insight {
+        background: var(--surface2);
+        border-left: 3px solid var(--accent);
+        padding: 0.9rem 1.1rem;
+        border-radius: 0 6px 6px 0;
+        font-size: 0.78rem;
+        line-height: 1.7;
+        color: var(--dim);
+        margin-top: 0.8rem;
+      }
+
+      .insight strong {
+        color: var(--text);
+      }
+
+      .insight.warn {
+        border-left-color: var(--cen);
+      }
+
+      .insight.info {
+        border-left-color: var(--dir);
+      }
+
+      /* ── STAT CARDS ── */
+      .stat-cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+      }
+
+      .stat-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 1rem 1.2rem;
+      }
+
+      .stat-card-val {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 1.6rem;
+        font-weight: 700;
+        margin: 0.3rem 0 0.2rem;
+      }
+
+      .stat-card-lbl {
+        font-size: 0.68rem;
+        color: var(--dim);
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+      }
+
+      .stat-card-sub {
+        font-size: 0.72rem;
+        color: var(--dim);
+        margin-top: 0.3rem;
+      }
+
+      /* ── MANN-KENDALL TABLE ── */
+      .mk-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.8rem;
+        margin-top: 0.8rem;
+      }
+
+      .mk-card {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.9rem 1rem;
+      }
+
+      .mk-card-title {
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--dim);
+        margin-bottom: 0.5rem;
+      }
+
+      .mk-val {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 1.1rem;
+        font-weight: 600;
+      }
+
+      .mk-trend-up {
+        color: #69db7c;
+      }
+
+      .mk-trend-dn {
+        color: var(--esq);
+      }
+
+      .mk-trend-no {
+        color: var(--dim);
+      }
+
+      .mk-sub {
+        font-size: 0.72rem;
+        color: var(--dim);
+        margin-top: 0.3rem;
+      }
+
+      /* ── TABLE ── */
+      .tbl-wrap {
+        overflow-x: auto;
+        margin-top: 0.5rem;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th {
+        text-align: left;
+        padding: 0.5rem 0.7rem;
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--dim);
+        border-bottom: 1px solid var(--border2);
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      td {
+        padding: 0.45rem 0.7rem;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.78rem;
+      }
+
+      tr:hover td {
+        background: var(--surface2);
+      }
+
+      .num {
+        font-family: "IBM Plex Mono", monospace;
+      }
+
+      /* ── WORD CLOUD ── */
+      .wcloud {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        padding: 0.5rem 0;
+        align-items: center;
+      }
+
+      .wtag {
+        padding: 0.25rem 0.6rem;
+        border-radius: 3px;
+        font-family: "IBM Plex Mono", monospace;
+        cursor: default;
+        transition: opacity 0.15s;
+      }
+
+      .wtag:hover {
+        opacity: 1 !important;
+      }
+
+      /* ── TOPIC BARS ── */
+      .topic-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+      }
+
+      .topic-row {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+      }
+
+      .topic-label {
+        font-size: 0.72rem;
+        color: var(--text);
+        min-width: 200px;
+        max-width: 200px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .topic-bar-wrap {
+        flex: 1;
+        height: 16px;
+        background: var(--surface2);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+
+      .topic-bar {
+        height: 100%;
+        border-radius: 2px;
+        transition: width 0.6s ease;
+      }
+
+      .topic-pct {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.68rem;
+        color: var(--dim);
+        min-width: 36px;
+        text-align: right;
+      }
+
+      /* ── NOTE ── */
+      .note {
+        background: rgba(107, 117, 146, 0.08);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.7rem 1rem;
+        font-size: 0.75rem;
+        color: var(--dim);
+        margin-bottom: 1rem;
+        line-height: 1.6;
+      }
+
+      .note strong {
+        color: var(--cen);
+      }
+
+      /* ── EMPTY ── */
+      .empty {
+        padding: 2rem;
+        text-align: center;
+        color: var(--dim);
+        font-size: 0.8rem;
+      }
+
+      @media (max-width: 900px) {
+        .grid-2,
+        .grid-3 {
+          grid-template-columns: 1fr;
+        }
+
+        .col-span-2,
+        .col-span-3 {
+          grid-column: span 1;
+        }
+
+        .stat-cards {
+          grid-template-columns: repeat(2, 1fr);
+        }
+
+        .mk-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .content {
+          padding: 1rem;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- LOADER / FILE INPUT -->
+    <div id="loader">
+      <h1>// CÂMARA NLP</h1>
+      <p>
+        Dashboard de análise dos discursos parlamentares sobre violência contra
+        a mulher e temas relacionados.
+      </p>
+      <label class="upload-zone" id="dropzone">
+        <div class="icon">📂</div>
+        <div><strong>Clique para carregar o dashboard_data.json</strong></div>
+        <div class="hint">Gerado pelo pipeline NLP (Etapa 7)</div>
+        <input type="file" id="json-input" accept=".json" />
+      </label>
+      <button class="btn-demo" onclick="loadDemo()">
+        ↗ Carregar dados de demonstração
+      </button>
+    </div>
+
+    <!-- DASHBOARD (hidden until data loads) -->
+    <div id="app" style="display: none">
+      <div class="header">
+        <div class="header-title">
+          <h1>CÂMARA DOS DEPUTADOS — ANÁLISE NLP</h1>
+          <p id="header-desc">
+            Mapeamento do debate político sobre mulheres e violência de gênero
+            na Câmara dos Deputados.
+          </p>
+        </div>
+      </div>
+
+      <div class="stats-bar" id="stats-bar"></div>
+
+      <div class="tabs">
+        <div class="tab active" data-section="geral">Visão Geral</div>
+        <div class="tab" data-section="espectro">Esquerda × Direita</div>
+        <div class="tab" data-section="topicos">Tópicos</div>
+        <div class="tab" data-section="temas">Temas</div>
+        <div class="tab" data-section="regioes">Regiões</div>
+        <div class="tab" data-section="partidos">Partidos</div>
+        <div class="tab" data-section="vocab">Vocabulário</div>
+        <div class="tab" data-section="stats">Estatísticas</div>
+      </div>
+
+      <div class="content">
+        <!-- VISÃO GERAL -->
+        <div id="section-geral" class="section active">
+          <div class="grid grid-2">
+            <div class="card">
+              <div class="card-title">
+                Evolução temporal — discursos por ano
+              </div>
+              <canvas id="ch-evolucao"></canvas>
+            </div>
+            <div class="card">
+              <div class="card-title">Distribuição por espectro político</div>
+              <canvas id="ch-donut"></canvas>
+            </div>
+            <div class="card">
+              <div class="card-title">Top 15 partidos por volume</div>
+              <canvas id="ch-partidos"></canvas>
+            </div>
+            <div class="card">
+              <div class="card-title">Distribuição por fase da sessão</div>
+              <canvas id="ch-fase"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- ESPECTRO -->
+        <div id="section-espectro" class="section">
+          <div class="grid">
+            <div class="card col-span-3">
+              <div class="card-title">
+                Esquerda × Centro × Direita — volume absoluto por ano
+              </div>
+              <canvas id="ch-esp-linha"></canvas>
+            </div>
+            <div class="card col-span-3">
+              <div class="card-title">Proporção do espectro por ano (%)</div>
+              <canvas id="ch-esp-pct"></canvas>
+            </div>
+            <div class="card col-span-3">
+              <div class="insight">
+                <strong>Como interpretar:</strong> O gráfico de barras
+                empilhadas mostra a participação relativa de cada espectro ano a
+                ano. Uma proporção crescente da esquerda com linha plana indica
+                mais engajamento relativo, não apenas mais deputados eleitos.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TÓPICOS -->
+        <div id="section-topicos" class="section">
+          <div id="topicos-note" class="note" style="display: none">
+            <strong>Nota:</strong> Esta seção requer que o pipeline tenha sido
+            executado com a etapa de BERTopic/k-means (Etapa 5). Se os dados de
+            tópicos não estiverem no JSON, ela ficará vazia.
+          </div>
+          <div class="grid grid-2">
+            <div class="card col-span-2">
+              <div class="card-title">
+                Frequência dos tópicos — proporção no corpus
+              </div>
+              <div id="topic-bars-geral" class="topic-list"></div>
+            </div>
+            <div class="card">
+              <div class="card-title">Tópicos por espectro político (%)</div>
+              <canvas id="ch-topico-esp"></canvas>
+            </div>
+            <div class="card">
+              <div class="card-title">Evolução temporal dos tópicos (%)</div>
+              <canvas id="ch-topico-ano"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- TEMAS -->
+        <div id="section-temas" class="section">
+          <div class="grid">
+            <div class="card col-span-3">
+              <div class="card-title">
+                Temas por espectro político (% dos discursos que mencionam)
+              </div>
+              <canvas id="ch-temas-esp"></canvas>
+            </div>
+            <div class="card col-span-3">
+              <div class="card-title">Evolução temporal dos temas (%)</div>
+              <canvas id="ch-temas-ano"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- REGIÕES -->
+        <div id="section-regioes" class="section">
+          <div class="grid grid-2">
+            <div class="card">
+              <div class="card-title">Discursos por região</div>
+              <canvas id="ch-regiao-bar"></canvas>
+            </div>
+            <div class="card">
+              <div class="card-title">Discursos por UF (top 15)</div>
+              <canvas id="ch-uf"></canvas>
+            </div>
+            <div class="card col-span-2">
+              <div class="card-title">Temas por região (% dos discursos)</div>
+              <canvas id="ch-temas-reg"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- PARTIDOS -->
+        <div id="section-partidos" class="section">
+          <div class="card">
+            <div class="card-title">
+              Perfil temático dos principais partidos
+            </div>
+            <div class="tbl-wrap">
+              <table id="tbl-partidos">
+                <thead>
+                  <tr id="tbl-partidos-head"></tr>
+                </thead>
+                <tbody id="tbl-partidos-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- VOCABULÁRIO -->
+        <div id="section-vocab" class="section">
+          <div class="grid grid-3">
+            <div class="card">
+              <div class="card-title">
+                🔴 Esquerda — palavras mais frequentes
+              </div>
+              <div id="wc-esq" class="wcloud"></div>
+            </div>
+            <div class="card">
+              <div class="card-title">
+                🔵 Direita — palavras mais frequentes
+              </div>
+              <div id="wc-dir" class="wcloud"></div>
+            </div>
+            <div class="card">
+              <div class="card-title">🟡 Centro — palavras mais frequentes</div>
+              <div id="wc-cen" class="wcloud"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ESTATÍSTICAS -->
+        <div id="section-stats" class="section">
+          <div class="card" style="margin-bottom: 1rem">
+            <div class="card-title">
+              Teste de Mann-Kendall — tendências na série temporal
+            </div>
+            <p
+              style="
+                font-size: 0.75rem;
+                color: var(--dim);
+                margin-bottom: 0.8rem;
+                line-height: 1.6;
+              "
+            >
+              Teste não-paramétrico que detecta tendências monotônicas.
+              <strong style="color: var(--text)">p &lt; 0.05</strong> =
+              tendência estatisticamente significativa. Tau positivo =
+              crescimento; negativo = queda.
+            </p>
+            <div class="mk-grid" id="mk-grid"></div>
+          </div>
+
+          <div class="grid grid-2">
+            <div class="card">
+              <div class="card-title">Coeficiente de variação por partido</div>
+              <p
+                style="
+                  font-size: 0.72rem;
+                  color: var(--dim);
+                  margin-bottom: 0.8rem;
+                  line-height: 1.6;
+                "
+              >
+                CV baixo = participação estável ao longo dos anos. CV alto =
+                participação irregular ou concentrada em períodos específicos.
+              </p>
+              <div id="cv-bars" class="topic-list"></div>
+            </div>
+            <div class="card">
+              <div class="card-title">
+                Busca em grade — k ideal para k-means
+              </div>
+              <p
+                style="
+                  font-size: 0.72rem;
+                  color: var(--dim);
+                  margin-bottom: 0.8rem;
+                  line-height: 1.6;
+                "
+              >
+                Avaliação de coerência e diversidade dos tópicos para diferentes
+                valores de k.
+              </p>
+              <canvas id="ch-grade"></canvas>
+              <div class="empty" id="grade-empty" style="display: none">
+                Dados da busca em grade não encontrados no JSON.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- /content -->
+    </div>
+    <!-- /app -->
+
+    <script>
+      // ── CHART DEFAULTS ──────────────────────────────────────────────────
+      Chart.defaults.color = "#6b7592";
+      Chart.defaults.borderColor = "#1e2330";
+      Chart.defaults.font.family = "'IBM Plex Sans', sans-serif";
+      Chart.defaults.font.size = 11;
+      Chart.defaults.plugins.legend.labels.usePointStyle = true;
+      Chart.defaults.plugins.legend.labels.padding = 14;
+      Chart.defaults.plugins.tooltip.backgroundColor = "#171b24";
+      Chart.defaults.plugins.tooltip.borderColor = "#2a3044";
+      Chart.defaults.plugins.tooltip.borderWidth = 1;
+      Chart.defaults.plugins.tooltip.titleColor = "#d8dde8";
+      Chart.defaults.plugins.tooltip.bodyColor = "#6b7592";
+      Chart.defaults.plugins.tooltip.padding = 10;
+
+      const C = {
+        esq: "#ff4d6d",
+        cen: "#ffa94d",
+        dir: "#4da6ff",
+        acc: "#00e5b0",
+        semc: "#92ddcc",
+        palette: [
+          "#ff4d6d",
+          "#4da6ff",
+          "#00e5b0",
+          "#ffa94d",
+          "#b388ff",
+          "#69db7c",
+          "#ffd43b",
+          "#74c0fc",
+          "#ff8787",
+          "#a9e34b",
+        ],
+        regioes: ["#00e5b0", "#ffa94d", "#4da6ff", "#ff4d6d", "#b388ff"],
+      };
+
+      const scaleOpts = () => ({
+        y: { grid: { color: "#1e2330" }, beginAtZero: true },
+        x: { grid: { display: false } },
+      });
+
+      let D = null; // global data
+
+      // ── FILE INPUT ──────────────────────────────────────────────────────
+      document.getElementById("json-input").addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const json = JSON.parse(ev.target.result);
+            initDashboard(json);
+          } catch (err) {
+            alert("Erro ao ler o JSON: " + err.message);
+          }
+        };
+        reader.readAsText(file);
+      });
+
+      // Demo data fallback (structure only, limited data)
+      function loadDemo() {
+        const demo = {
+          evolucao_temporal: [
+            { Ano: 2018, Total: 338 },
+            { Ano: 2019, Total: 1733 },
+            { Ano: 2020, Total: 861 },
+            { Ano: 2021, Total: 1534 },
+            { Ano: 2022, Total: 1189 },
+            { Ano: 2023, Total: 1776 },
+            { Ano: 2024, Total: 1213 },
+            { Ano: 2025, Total: 1001 },
+          ],
+          espectro_por_ano: [
+            { Ano: 2018, Espectro: "Esquerda", count: 227 },
+            { Ano: 2018, Espectro: "Direita", count: 60 },
+            { Ano: 2018, Espectro: "Centro", count: 51 },
+            { Ano: 2019, Espectro: "Esquerda", count: 1042 },
+            { Ano: 2019, Espectro: "Direita", count: 432 },
+            { Ano: 2019, Espectro: "Centro", count: 259 },
+            { Ano: 2020, Espectro: "Esquerda", count: 563 },
+            { Ano: 2020, Espectro: "Direita", count: 211 },
+            { Ano: 2020, Espectro: "Centro", count: 87 },
+            { Ano: 2021, Espectro: "Esquerda", count: 974 },
+            { Ano: 2021, Espectro: "Direita", count: 357 },
+            { Ano: 2021, Espectro: "Centro", count: 203 },
+            { Ano: 2022, Espectro: "Esquerda", count: 666 },
+            { Ano: 2022, Espectro: "Direita", count: 301 },
+            { Ano: 2022, Espectro: "Centro", count: 222 },
+            { Ano: 2023, Espectro: "Esquerda", count: 834 },
+            { Ano: 2023, Espectro: "Direita", count: 720 },
+            { Ano: 2023, Espectro: "Centro", count: 222 },
+            { Ano: 2024, Espectro: "Esquerda", count: 557 },
+            { Ano: 2024, Espectro: "Direita", count: 495 },
+            { Ano: 2024, Espectro: "Centro", count: 161 },
+            { Ano: 2025, Espectro: "Esquerda", count: 434 },
+            { Ano: 2025, Espectro: "Direita", count: 391 },
+            { Ano: 2025, Espectro: "Centro", count: 176 },
+          ],
+          top_partidos: [
+            { partido: "PT", count: 2811 },
+            { partido: "PL", count: 1169 },
+            { partido: "PSOL", count: 899 },
+            { partido: "PCdoB", count: 590 },
+            { partido: "PSD", count: 415 },
+            { partido: "PSB", count: 406 },
+            { partido: "REPUBLICANOS", count: 383 },
+            { partido: "PP", count: 356 },
+            { partido: "PDT", count: 340 },
+            { partido: "UNIÃO", count: 295 },
+            { partido: "PSL", count: 279 },
+            { partido: "MDB", count: 242 },
+            { partido: "PSDB", count: 201 },
+            { partido: "CIDADANIA", count: 195 },
+            { partido: "NOVO", count: 184 },
+          ],
+          temas_por_espectro: [
+            { espectro: "Esquerda", tema: "Violência doméstica", pct: 13.0 },
+            { espectro: "Esquerda", tema: "Feminicídio", pct: 8.2 },
+            { espectro: "Esquerda", tema: "Violência sexual", pct: 8.6 },
+            { espectro: "Esquerda", tema: "Machismo/Misoginia", pct: 11.2 },
+            { espectro: "Esquerda", tema: "Igualdade de gênero", pct: 6.2 },
+            {
+              espectro: "Esquerda",
+              tema: "Políticas para mulheres",
+              pct: 11.1,
+            },
+            { espectro: "Direita", tema: "Violência doméstica", pct: 10.1 },
+            { espectro: "Direita", tema: "Feminicídio", pct: 5.7 },
+            { espectro: "Direita", tema: "Violência sexual", pct: 13.4 },
+            { espectro: "Direita", tema: "Machismo/Misoginia", pct: 2.7 },
+            { espectro: "Direita", tema: "Igualdade de gênero", pct: 1.1 },
+            { espectro: "Direita", tema: "Políticas para mulheres", pct: 5.4 },
+            { espectro: "Centro", tema: "Violência doméstica", pct: 11.0 },
+            { espectro: "Centro", tema: "Feminicídio", pct: 7.2 },
+            { espectro: "Centro", tema: "Violência sexual", pct: 11.4 },
+            { espectro: "Centro", tema: "Machismo/Misoginia", pct: 2.4 },
+            { espectro: "Centro", tema: "Igualdade de gênero", pct: 2.0 },
+            { espectro: "Centro", tema: "Políticas para mulheres", pct: 9.0 },
+          ],
+          temas_por_ano: [
+            { ano: 2022, tema: "Violência doméstica", pct: 15.3 },
+            { ano: 2022, tema: "Feminicídio", pct: 2.9 },
+            { ano: 2022, tema: "Machismo/Misoginia", pct: 7.3 },
+            { ano: 2023, tema: "Violência doméstica", pct: 13.1 },
+            { ano: 2023, tema: "Feminicídio", pct: 6.6 },
+            { ano: 2023, tema: "Machismo/Misoginia", pct: 8.1 },
+            { ano: 2024, tema: "Violência doméstica", pct: 11.1 },
+            { ano: 2024, tema: "Feminicídio", pct: 8.2 },
+            { ano: 2024, tema: "Machismo/Misoginia", pct: 4.7 },
+            { ano: 2025, tema: "Violência doméstica", pct: 8.7 },
+            { ano: 2025, tema: "Feminicídio", pct: 8.1 },
+            { ano: 2025, tema: "Machismo/Misoginia", pct: 6.9 },
+          ],
+          temas_por_regiao: [
+            { regiao: "Sudeste", tema: "Violência doméstica", pct: 12.2 },
+            { regiao: "Sudeste", tema: "Feminicídio", pct: 7.0 },
+            { regiao: "Sudeste", tema: "Machismo/Misoginia", pct: 8.0 },
+            { regiao: "Nordeste", tema: "Violência doméstica", pct: 9.2 },
+            { regiao: "Nordeste", tema: "Feminicídio", pct: 4.6 },
+            { regiao: "Nordeste", tema: "Machismo/Misoginia", pct: 3.7 },
+            { regiao: "Sul", tema: "Violência doméstica", pct: 8.4 },
+            { regiao: "Sul", tema: "Feminicídio", pct: 7.0 },
+            { regiao: "Sul", tema: "Machismo/Misoginia", pct: 6.4 },
+            { regiao: "Centro-Oeste", tema: "Violência doméstica", pct: 19.4 },
+            { regiao: "Centro-Oeste", tema: "Feminicídio", pct: 12.8 },
+            { regiao: "Centro-Oeste", tema: "Machismo/Misoginia", pct: 11.2 },
+            { regiao: "Norte", tema: "Violência doméstica", pct: 8.8 },
+            { regiao: "Norte", tema: "Feminicídio", pct: 4.0 },
+            { regiao: "Norte", tema: "Machismo/Misoginia", pct: 1.8 },
+          ],
+          por_regiao: [
+            { regiao: "Sudeste", count: 3476 },
+            { regiao: "Nordeste", count: 2118 },
+            { regiao: "Sul", count: 1689 },
+            { regiao: "Centro-Oeste", count: 1299 },
+            { regiao: "Norte", count: 1063 },
+          ],
+          por_uf: [
+            { uf: "SP", count: 1509 },
+            { uf: "RJ", count: 1133 },
+            { uf: "RS", count: 1015 },
+            { uf: "DF", count: 831 },
+            { uf: "BA", count: 716 },
+            { uf: "MG", count: 547 },
+          ],
+          por_fase: [
+            { fase: "Breves Comunicações", count: 3200 },
+            { fase: "Pequeno Expediente", count: 2800 },
+            { fase: "Ordem do Dia", count: 1600 },
+            { fase: "Outros", count: 900 },
+          ],
+          partidos_temas: [
+            {
+              partido: "PT",
+              espectro: "Esquerda",
+              total: 1193,
+              "Violência doméstica": 14.8,
+              Feminicídio: 9.3,
+              "Violência sexual": 7.9,
+              "Igualdade de gênero": 7.7,
+              "Machismo/Misoginia": 11.2,
+              "Proteção das mulheres": 3.1,
+              "Saúde da mulher": 1.8,
+              "Políticas para mulheres": 12.4,
+            },
+            {
+              partido: "PL",
+              espectro: "Direita",
+              total: 868,
+              "Violência doméstica": 7.9,
+              Feminicídio: 5.2,
+              "Violência sexual": 13.8,
+              "Igualdade de gênero": 0.6,
+              "Machismo/Misoginia": 3.1,
+              "Proteção das mulheres": 2.9,
+              "Saúde da mulher": 2.9,
+              "Políticas para mulheres": 4.8,
+            },
+            {
+              partido: "PSOL",
+              espectro: "Esquerda",
+              total: 371,
+              "Violência doméstica": 11.1,
+              Feminicídio: 7.3,
+              "Violência sexual": 12.4,
+              "Igualdade de gênero": 5.1,
+              "Machismo/Misoginia": 17.5,
+              "Proteção das mulheres": 2.4,
+              "Saúde da mulher": 1.1,
+              "Políticas para mulheres": 9.7,
+            },
+            {
+              partido: "REPUBLICANOS",
+              espectro: "Direita",
+              total: 164,
+              "Violência doméstica": 13.4,
+              Feminicídio: 3.7,
+              "Violência sexual": 9.8,
+              "Igualdade de gênero": 0.6,
+              "Machismo/Misoginia": 0.0,
+              "Proteção das mulheres": 6.1,
+              "Saúde da mulher": 2.4,
+              "Políticas para mulheres": 7.9,
+            },
+            {
+              partido: "MDB",
+              espectro: "Centro",
+              total: 126,
+              "Violência doméstica": 11.1,
+              Feminicídio: 7.9,
+              "Violência sexual": 18.3,
+              "Igualdade de gênero": 2.4,
+              "Machismo/Misoginia": 2.4,
+              "Proteção das mulheres": 2.4,
+              "Saúde da mulher": 6.3,
+              "Políticas para mulheres": 7.1,
+            },
+          ],
+          vocabulario: {
+            Esquerda: [
+              { word: "mulheres", count: 5247 },
+              { word: "violência", count: 1630 },
+              { word: "direitos", count: 1006 },
+              { word: "luta", count: 907 },
+              { word: "machismo", count: 860 },
+              { word: "política", count: 1274 },
+              { word: "igualdade", count: 780 },
+              { word: "trabalho", count: 1056 },
+              { word: "saúde", count: 856 },
+              { word: "feminismo", count: 620 },
+            ],
+            Direita: [
+              { word: "mulheres", count: 3323 },
+              { word: "crime", count: 770 },
+              { word: "segurança", count: 709 },
+              { word: "família", count: 680 },
+              { word: "violência", count: 733 },
+              { word: "proteção", count: 620 },
+              { word: "crianças", count: 665 },
+              { word: "delegacia", count: 450 },
+              { word: "punição", count: 410 },
+              { word: "pena", count: 380 },
+            ],
+            Centro: [
+              { word: "mulheres", count: 1071 },
+              { word: "saúde", count: 416 },
+              { word: "segurança", count: 300 },
+              { word: "cidade", count: 281 },
+              { word: "proteção", count: 270 },
+              { word: "trabalho", count: 277 },
+              { word: "homens", count: 268 },
+              { word: "pública", count: 311 },
+              { word: "políticas", count: 290 },
+              { word: "serviços", count: 240 },
+            ],
+          },
+          mann_kendall: [
+            {
+              espectro: "Esquerda",
+              tendencia: "increasing",
+              p: 0.0021,
+              tau: 0.42,
+            },
+            { espectro: "Centro", tendencia: "no trend", p: 0.31, tau: 0.12 },
+            {
+              espectro: "Direita",
+              tendencia: "decreasing",
+              p: 0.0089,
+              tau: -0.38,
+            },
+          ],
+          topicos_freq: [],
+          topicos_por_espectro: [],
+          topicos_por_ano: [],
+          busca_grade_k: [],
+        };
+        initDashboard(demo);
+      }
+
+      // ── INIT ────────────────────────────────────────────────────────────
+      function initDashboard(data) {
+        D = data;
+
+        // Normalize column names (pipeline may use different keys)
+        normalizeData();
+
+        document.getElementById("loader").style.display = "none";
+        document.getElementById("app").style.display = "block";
+
+        renderStats();
+        renderGeral();
+        renderEspectro();
+        renderTopicos();
+        renderTemas();
+        renderRegioes();
+        renderPartidos();
+        renderVocab();
+        renderEstatisticas();
+        bindTabs();
+      }
+
+      function normalizeData() {
+        // Fix 'Total_discursos' vs 'Total'
+        if (D.evolucao_temporal) {
+          D.evolucao_temporal = D.evolucao_temporal.map((d) => ({
+            ...d,
+            Total: d.Total || d.Total_discursos || d.total || 0,
+          }));
+        }
+        // Fix 'por_uf' with possible 'Estado' key
+        if (D.por_uf && D.por_uf[0]) {
+          D.por_uf = D.por_uf.map((d) => ({
+            uf: d.uf || d.Estado || d.UF || "",
+            count: d.count || 0,
+          }));
+        }
+        // Fix 'por_regiao'
+        if (D.por_regiao && D.por_regiao[0]) {
+          D.por_regiao = D.por_regiao.map((d) => ({
+            regiao: d.regiao || d.Regiao || "",
+            count: d.count || 0,
+          }));
+        }
+      }
+
+      // ── STATS BAR ───────────────────────────────────────────────────────
+      function renderStats() {
+        const total =
+          D.evolucao_temporal?.reduce((s, d) => s + d.Total, 0) || "—";
+        const anos = D.evolucao_temporal || [];
+        const periodo = anos.length
+          ? `${anos[0].Ano}–${anos[anos.length - 1].Ano}`
+          : "—";
+        const partidos = D.top_partidos?.length || "—";
+
+        const espCount = {};
+        D.espectro_por_ano?.forEach((d) => {
+          espCount[d.Espectro] = (espCount[d.Espectro] || 0) + d.count;
+        });
+        const totalEsp = Object.values(espCount).reduce((a, b) => a + b, 0);
+        const esqPct = totalEsp
+          ? Math.round(((espCount["Esquerda"] || 0) / totalEsp) * 100)
+          : "—";
+
+        const items = [
+          { val: total.toLocaleString("pt-BR"), lbl: "Discursos" },
+          { val: periodo, lbl: "Período" },
+          { val: partidos, lbl: "Partidos" },
+          {
+            val: (espCount["Esquerda"] || 0).toLocaleString("pt-BR"),
+            lbl: "Esquerda",
+          },
+          {
+            val: (espCount["Centro"] || 0).toLocaleString("pt-BR"),
+            lbl: "Centro",
+          },
+          {
+            val: (espCount["Direita"] || 0).toLocaleString("pt-BR"),
+            lbl: "Direita",
+          },
+          { val: esqPct + "%", lbl: "Share Esq." },
+        ];
+        document.getElementById("stats-bar").innerHTML = items
+          .map(
+            (i) =>
+              `<div class="stat"><span class="stat-val">${i.val}</span><span class="stat-lbl">${i.lbl}</span></div>`,
+          )
+          .join("");
+      }
+
+      // ── GERAL ───────────────────────────────────────────────────────────
+      function renderGeral() {
+        // Evolução temporal
+        mkChart(
+          "ch-evolucao",
+          "bar",
+          {
+            labels: D.evolucao_temporal.map((d) => d.Ano),
+            datasets: [
+              {
+                data: D.evolucao_temporal.map((d) => d.Total),
+                backgroundColor: D.evolucao_temporal.map((_, i, arr) => {
+                  const v = i / arr.length;
+                  return `rgba(0,229,176,${0.3 + v * 0.65})`;
+                }),
+                borderRadius: 3,
+                barPercentage: 0.7,
+              },
+            ],
+          },
+          { plugins: { legend: { display: false } }, scales: scaleOpts() },
+        );
+
+        // Donut espectro
+        const espCount = {};
+        D.espectro_por_ano?.forEach((d) => {
+          espCount[d.Espectro] = (espCount[d.Espectro] || 0) + d.count;
+        });
+        const espLabels = Object.keys(espCount);
+        const espColors = espLabels.map((e) =>
+          e === "Esquerda"
+            ? C.esq
+            : e === "Direita"
+              ? C.dir
+              : e === "Centro"
+                ? C.cen
+                : C.semc,
+        );
+        mkChart(
+          "ch-donut",
+          "doughnut",
+          {
+            labels: espLabels,
+            datasets: [
+              {
+                data: Object.values(espCount),
+                backgroundColor: espColors,
+                borderWidth: 0,
+                hoverOffset: 6,
+              },
+            ],
+          },
+          { cutout: "58%", plugins: { legend: { position: "bottom" } } },
+        );
+
+        // Top partidos
+        const espMap = {};
+        D.partidos_temas?.forEach((p) => {
+          espMap[p.partido] = p.espectro;
+        });
+        mkChart(
+          "ch-partidos",
+          "bar",
+          {
+            labels: D.top_partidos.map((d) => d.partido),
+            datasets: [
+              {
+                data: D.top_partidos.map((d) => d.count),
+                backgroundColor: D.top_partidos.map((d) => {
+                  const e = espMap[d.partido];
+                  return e === "Esquerda"
+                    ? C.esq + "cc"
+                    : e === "Direita"
+                      ? C.dir + "cc"
+                      : C.cen + "cc";
+                }),
+                borderRadius: 3,
+              },
+            ],
+          },
+          {
+            indexAxis: "y",
+            interaction: { mode: "index", axis: "y", intersect: false },
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { grid: { color: "#1e2330" }, beginAtZero: true },
+              y: { grid: { display: false } },
+            },
+          },
+        );
+
+        // Fase da sessão
+        if (D.por_fase && D.por_fase.length) {
+          mkChart(
+            "ch-fase",
+            "bar",
+            {
+              labels: D.por_fase.map((d) => d.fase),
+              datasets: [
+                {
+                  data: D.por_fase.map((d) => d.count),
+                  backgroundColor: C.acc + "99",
+                  borderRadius: 3,
+                },
+              ],
+            },
+            {
+              indexAxis: "y",
+              interaction: { mode: "index", axis: "y", intersect: false },
+              plugins: { legend: { display: false } },
+              scales: {
+                x: { grid: { color: "#1e2330" }, beginAtZero: true },
+                y: { grid: { display: false } },
+              },
+            },
+          );
+        }
+      }
+
+      // ── ESPECTRO ─────────────────────────────────────────────────────────
+      function renderEspectro() {
+        const anos = [...new Set(D.espectro_por_ano.map((d) => d.Ano))].sort();
+        const getLine = (esp) =>
+          anos.map((a) => {
+            const r = D.espectro_por_ano.find(
+              (d) => d.Ano === a && d.Espectro === esp,
+            );
+            return r?.count || 0;
+          });
+
+        mkChart(
+          "ch-esp-linha",
+          "line",
+          {
+            labels: anos,
+            datasets: [
+              {
+                label: "Esquerda",
+                data: getLine("Esquerda"),
+                borderColor: C.esq,
+                backgroundColor: C.esq + "22",
+                fill: true,
+                tension: 0.35,
+                pointRadius: 3,
+              },
+              {
+                label: "Direita",
+                data: getLine("Direita"),
+                borderColor: C.dir,
+                backgroundColor: C.dir + "22",
+                fill: true,
+                tension: 0.35,
+                pointRadius: 3,
+              },
+              {
+                label: "Centro",
+                data: getLine("Centro"),
+                borderColor: C.cen,
+                backgroundColor: C.cen + "22",
+                fill: true,
+                tension: 0.35,
+                pointRadius: 3,
+              },
+            ],
+          },
+          { scales: scaleOpts() },
+        );
+
+        // Proporção empilhada
+        const pctData = anos.map((a) => {
+          const rows = D.espectro_por_ano.filter((d) => d.Ano === a);
+          const tot = rows.reduce((s, d) => s + d.count, 0);
+          return {
+            esq:
+              (rows.find((d) => d.Espectro === "Esquerda")?.count / tot) *
+                100 || 0,
+            dir:
+              (rows.find((d) => d.Espectro === "Direita")?.count / tot) * 100 ||
+              0,
+            cen:
+              (rows.find((d) => d.Espectro === "Centro")?.count / tot) * 100 ||
+              0,
+          };
+        });
+        mkChart(
+          "ch-esp-pct",
+          "bar",
+          {
+            labels: anos,
+            datasets: [
+              {
+                label: "Esquerda",
+                data: pctData.map((d) => d.esq),
+                backgroundColor: C.esq,
+              },
+              {
+                label: "Direita",
+                data: pctData.map((d) => d.dir),
+                backgroundColor: C.dir,
+              },
+              {
+                label: "Centro",
+                data: pctData.map((d) => d.cen),
+                backgroundColor: C.cen,
+              },
+            ],
+          },
+          {
+            scales: {
+              y: {
+                stacked: true,
+                max: 100,
+                grid: { color: "#1e2330" },
+                ticks: { callback: (v) => v + "%" },
+              },
+              x: { stacked: true, grid: { display: false } },
+            },
+          },
+        );
+      }
+
+      // ── TÓPICOS (k-means / BERTopic) ─────────────────────────────────────
+      function renderTopicos() {
+        const freq = D.topicos_freq || [];
+        const porEsp = D.topicos_por_espectro || [];
+        const porAno = D.topicos_por_ano || [];
+
+        if (!freq.length && !porEsp.length) {
+          document.getElementById("topicos-note").style.display = "block";
+          document.getElementById("topic-bars-geral").innerHTML =
+            '<div class="empty">Dados de tópicos não encontrados no JSON.<br>Execute a Etapa 5 do pipeline para gerar.</div>';
+          return;
+        }
+
+        // Barras horizontais de frequência
+        const container = document.getElementById("topic-bars-geral");
+        const maxPct = Math.max(...freq.map((d) => d.pct));
+        freq.slice(0, 20).forEach((d, i) => {
+          const pct = parseFloat(d.pct);
+          const color = C.palette[i % C.palette.length];
+          container.innerHTML += `
+      <div class="topic-row">
+        <div class="topic-label" title="${d.topico}">${d.topico}</div>
+        <div class="topic-bar-wrap">
+          <div class="topic-bar" style="width:${((pct / maxPct) * 100).toFixed(1)}%; background:${color}99"></div>
+        </div>
+        <div class="topic-pct">${pct.toFixed(1)}%</div>
+      </div>`;
+        });
+
+        // Tópicos por espectro
+        if (porEsp.length) {
+          const espectros = [...new Set(porEsp.map((d) => d.espectro))];
+          const topicosTop = freq.slice(0, 8).map((d) => d.topico);
+          mkChart(
+            "ch-topico-esp",
+            "bar",
+            {
+              labels: topicosTop.map((t) =>
+                t.length > 20 ? t.slice(0, 18) + "…" : t,
+              ),
+              datasets: espectros.map((esp, i) => ({
+                label: esp,
+                data: topicosTop.map((t) => {
+                  const r = porEsp.find(
+                    (d) => d.espectro === esp && d.topico === t,
+                  );
+                  return r?.pct || 0;
+                }),
+                backgroundColor:
+                  esp === "Esquerda"
+                    ? C.esq
+                    : esp === "Direita"
+                      ? C.dir
+                      : C.cen,
+              })),
+            },
+            {
+              scales: {
+                y: {
+                  grid: { color: "#1e2330" },
+                  beginAtZero: true,
+                  ticks: { callback: (v) => v + "%" },
+                },
+                x: { grid: { display: false } },
+              },
+            },
+          );
+        }
+
+        // Tópicos por ano
+        if (porAno.length) {
+          const anos = [...new Set(porAno.map((d) => d.ano))].sort();
+          const topicosTop5 = freq.slice(0, 5).map((d) => d.topico);
+          mkChart(
+            "ch-topico-ano",
+            "line",
+            {
+              labels: anos,
+              datasets: topicosTop5.map((t, i) => ({
+                label: t.length > 22 ? t.slice(0, 20) + "…" : t,
+                data: anos.map((a) => {
+                  const r = porAno.find((d) => d.ano === a && d.topico === t);
+                  return r?.pct || 0;
+                }),
+                borderColor: C.palette[i],
+                backgroundColor: "transparent",
+                tension: 0.3,
+                pointRadius: 3,
+              })),
+            },
+            {
+              scales: {
+                y: {
+                  grid: { color: "#1e2330" },
+                  beginAtZero: true,
+                  ticks: { callback: (v) => v + "%" },
+                },
+                x: { grid: { display: false } },
+              },
+            },
+          );
+        }
+      }
+
+      // ── TEMAS ────────────────────────────────────────────────────────────
+      function renderTemas() {
+        const allTemas = [
+          ...new Set(D.temas_por_espectro?.map((d) => d.tema) || []),
+        ];
+        if (!allTemas.length) return;
+
+        // Temas por espectro
+        mkChart(
+          "ch-temas-esp",
+          "bar",
+          {
+            labels: allTemas.map((t) =>
+              t.length > 20 ? t.slice(0, 18) + "…" : t,
+            ),
+            datasets: ["Esquerda", "Centro", "Direita"].map((esp) => ({
+              label: esp,
+              data: allTemas.map((t) => {
+                const r = D.temas_por_espectro.find(
+                  (d) => d.espectro === esp && d.tema === t,
+                );
+                return r?.pct || 0;
+              }),
+              backgroundColor:
+                esp === "Esquerda" ? C.esq : esp === "Direita" ? C.dir : C.cen,
+            })),
+          },
+          {
+            scales: {
+              y: {
+                grid: { color: "#1e2330" },
+                beginAtZero: true,
+                ticks: { callback: (v) => v + "%" },
+              },
+              x: { grid: { display: false } },
+            },
+          },
+        );
+
+        // Temas por ano
+        const anos = [
+          ...new Set(D.temas_por_ano?.map((d) => d.ano) || []),
+        ].sort();
+        if (anos.length && allTemas.length) {
+          const temasTop = allTemas.slice(0, 6);
+          mkChart(
+            "ch-temas-ano",
+            "line",
+            {
+              labels: anos,
+              datasets: temasTop.map((t, i) => ({
+                label: t.length > 22 ? t.slice(0, 20) + "…" : t,
+                data: anos.map((a) => {
+                  const r = D.temas_por_ano.find(
+                    (d) => d.ano === a && d.tema === t,
+                  );
+                  return r?.pct || 0;
+                }),
+                borderColor: C.palette[i],
+                backgroundColor: "transparent",
+                tension: 0.3,
+                pointRadius: 4,
+              })),
+            },
+            {
+              scales: {
+                y: {
+                  grid: { color: "#1e2330" },
+                  beginAtZero: true,
+                  ticks: { callback: (v) => v + "%" },
+                },
+                x: { grid: { display: false } },
+              },
+            },
+          );
+        }
+      }
+
+      // ── REGIÕES ──────────────────────────────────────────────────────────
+      function renderRegioes() {
+        // Por região
+        if (D.por_regiao?.length) {
+          const sorted = [...D.por_regiao].sort((a, b) => b.count - a.count);
+          mkChart(
+            "ch-regiao-bar",
+            "bar",
+            {
+              labels: sorted.map((d) => d.regiao),
+              datasets: [
+                {
+                  data: sorted.map((d) => d.count),
+                  backgroundColor: C.regioes,
+                  borderRadius: 4,
+                },
+              ],
+            },
+            { plugins: { legend: { display: false } }, scales: scaleOpts() },
+          );
+        }
+
+        // Por UF (top 15)
+        if (D.por_uf?.length) {
+          const sorted = [...D.por_uf]
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 15);
+          mkChart(
+            "ch-uf",
+            "bar",
+            {
+              labels: sorted.map((d) => d.uf),
+              datasets: [
+                {
+                  data: sorted.map((d) => d.count),
+                  backgroundColor: C.acc + "99",
+                  borderRadius: 3,
+                },
+              ],
+            },
+            {
+              plugins: { legend: { display: false } },
+              scales: {
+                y: { grid: { color: "#1e2330" }, beginAtZero: true },
+                x: { grid: { display: false } },
+              },
+            },
+          );
+        }
+
+        // Temas por região
+        const regioes = [
+          ...new Set(D.temas_por_regiao?.map((d) => d.regiao) || []),
+        ];
+        const allTemas = [
+          ...new Set(D.temas_por_espectro?.map((d) => d.tema) || []),
+        ].slice(0, 5);
+        if (regioes.length && allTemas.length) {
+          mkChart(
+            "ch-temas-reg",
+            "bar",
+            {
+              labels: regioes,
+              datasets: allTemas.map((t, i) => ({
+                label: t.length > 22 ? t.slice(0, 20) + "…" : t,
+                data: regioes.map((r) => {
+                  const row = D.temas_por_regiao.find(
+                    (d) => d.regiao === r && d.tema === t,
+                  );
+                  return row?.pct || 0;
+                }),
+                backgroundColor: C.palette[i],
+              })),
+            },
+            {
+              scales: {
+                y: {
+                  grid: { color: "#1e2330" },
+                  beginAtZero: true,
+                  ticks: { callback: (v) => v + "%" },
+                },
+                x: { grid: { display: false } },
+              },
+            },
+          );
+        }
+      }
+
+      // ── PARTIDOS ─────────────────────────────────────────────────────────
+      function renderPartidos() {
+        if (!D.partidos_temas?.length) return;
+        const temas = Object.keys(D.partidos_temas[0]).filter(
+          (k) => !["partido", "espectro", "total"].includes(k),
+        );
+        const head = document.getElementById("tbl-partidos-head");
+        head.innerHTML =
+          `<th>Partido</th><th>Espectro</th><th class="num">Total</th>` +
+          temas
+            .map((t) => `<th>${t.length > 14 ? t.slice(0, 12) + "…" : t}</th>`)
+            .join("");
+
+        const body = document.getElementById("tbl-partidos-body");
+        D.partidos_temas.forEach((p) => {
+          const cls =
+            p.espectro === "Esquerda"
+              ? "tag-esq"
+              : p.espectro === "Direita"
+                ? "tag-dir"
+                : "tag-cen";
+          body.innerHTML += `<tr>
+      <td><strong>${p.partido}</strong></td>
+      <td><span class="tag ${cls}">${p.espectro}</span></td>
+      <td class="num">${(p.total || 0).toLocaleString("pt-BR")}</td>
+      ${temas
+        .map((t) => {
+          const v = parseFloat(p[t] || 0);
+          const intensity = Math.min(v / 20, 1);
+          const bg = v > 10 ? `rgba(0,229,176,${intensity * 0.3})` : "";
+          return `<td class="num" style="background:${bg}">${v.toFixed(1)}%</td>`;
+        })
+        .join("")}
+    </tr>`;
+        });
+      }
+
+      // ── VOCABULÁRIO ──────────────────────────────────────────────────────
+      function renderVocab() {
+        const vocab = D.vocabulario || {};
+        const pairs = [
+          ["Esquerda", "wc-esq", C.esq],
+          ["Direita", "wc-dir", C.dir],
+          ["Centro", "wc-cen", C.cen],
+        ];
+        pairs.forEach(([key, id, color]) => {
+          const words = vocab[key] || [];
+          if (!words.length) return;
+          const container = document.getElementById(id);
+          const max = Math.max(...words.map((w) => w.count));
+          words.forEach((w) => {
+            const scale = 0.35 + (w.count / max) * 0.65;
+            const span = document.createElement("span");
+            span.className = "wtag";
+            span.textContent = w.word;
+            span.title = `${w.word}: ${w.count.toLocaleString("pt-BR")}`;
+            span.style.fontSize = 0.65 + scale * 0.65 + "rem";
+            span.style.opacity = 0.5 + scale * 0.5;
+            span.style.background =
+              color +
+              Math.round(scale * 45)
+                .toString(16)
+                .padStart(2, "0");
+            span.style.color = color;
+            container.appendChild(span);
+          });
+        });
+      }
+
+      // ── ESTATÍSTICAS ─────────────────────────────────────────────────────
+      function renderEstatisticas() {
+        // Mann-Kendall
+        const mkGrid = document.getElementById("mk-grid");
+        const mk = D.mann_kendall || [];
+        if (mk.length) {
+          mk.forEach((r) => {
+            const espColor =
+              r.espectro === "Esquerda"
+                ? C.esq
+                : r.espectro === "Direita"
+                  ? C.dir
+                  : C.cen;
+            const tClass = r.tendencia?.includes("increas")
+              ? "mk-trend-up"
+              : r.tendencia?.includes("decreas")
+                ? "mk-trend-dn"
+                : "mk-trend-no";
+            const icon = r.tendencia?.includes("increas")
+              ? " ↑"
+              : r.tendencia?.includes("decreas")
+                ? " ↓"
+                : " →";
+            mkGrid.innerHTML += `
+        <div class="mk-card">
+          <div class="mk-card-title" style="color:${espColor}">${r.espectro}</div>
+          <div class="mk-val ${tClass}">${r.tendencia}${icon}</div>
+          <div class="mk-sub">p = ${parseFloat(r.p).toFixed(4)} &nbsp;|&nbsp; τ = ${parseFloat(r.tau).toFixed(3)}</div>
+        </div>`;
+          });
+        } else {
+          mkGrid.innerHTML =
+            '<div class="empty">Dados de Mann-Kendall não encontrados.<br>Garanta que o pipeline rodou a Etapa 4.</div>';
+        }
+
+        // Coeficiente de variação (calculado a partir dos dados de espectro por ano / partidos)
+        const cvEl = document.getElementById("cv-bars");
+        const cvData = D.cv_por_partido || [];
+        if (cvData.length) {
+          const maxCV = Math.max(...cvData.map((d) => d.cv));
+          cvData.slice(0, 12).forEach((d) => {
+            const pct = ((d.cv / maxCV) * 100).toFixed(1);
+            const color = d.cv < 0.5 ? C.acc : d.cv < 1.0 ? C.cen : C.esq;
+            cvEl.innerHTML += `
+        <div class="topic-row">
+          <div class="topic-label" title="${d.partido}">${d.partido}</div>
+          <div class="topic-bar-wrap">
+            <div class="topic-bar" style="width:${pct}%; background:${color}99"></div>
+          </div>
+          <div class="topic-pct">${d.cv.toFixed(2)}</div>
+        </div>`;
+          });
+        } else {
+          cvEl.innerHTML =
+            '<div class="empty" style="font-size:0.75rem; color:var(--dim)">CV não encontrado no JSON.<br>Calculado na Etapa 4g do pipeline.</div>';
+        }
+
+        // Busca em grade
+        const grade = D.busca_grade_k || [];
+        if (grade.length) {
+          document.getElementById("grade-empty").style.display = "none";
+          mkChart(
+            "ch-grade",
+            "line",
+            {
+              labels: grade.map((d) => d.k),
+              datasets: [
+                {
+                  label: "Silhueta",
+                  data: grade.map((d) => d.silhueta || d.silhouette || 0),
+                  borderColor: C.acc,
+                  backgroundColor: "transparent",
+                  tension: 0.3,
+                  pointRadius: 4,
+                },
+                {
+                  label: "Diversidade",
+                  data: grade.map((d) => d.diversidade || d.diversity || 0),
+                  borderColor: C.acc2 || "#b388ff",
+                  backgroundColor: "transparent",
+                  tension: 0.3,
+                  pointRadius: 4,
+                  borderDash: [4, 3],
+                },
+              ],
+            },
+            {
+              scales: {
+                y: { grid: { color: "#1e2330" }, min: 0, max: 1 },
+                x: {
+                  grid: { display: false },
+                  title: { display: true, text: "k", color: "#6b7592" },
+                },
+              },
+            },
+          );
+        } else {
+          document.getElementById("grade-empty").style.display = "block";
+        }
+      }
+
+      // ── TABS ─────────────────────────────────────────────────────────────
+      function bindTabs() {
+        document.querySelectorAll(".tab").forEach((tab) => {
+          tab.addEventListener("click", () => {
+            document
+              .querySelectorAll(".tab")
+              .forEach((t) => t.classList.remove("active"));
+            document
+              .querySelectorAll(".section")
+              .forEach((s) => s.classList.remove("active"));
+            tab.classList.add("active");
+            document
+              .getElementById("section-" + tab.dataset.section)
+              .classList.add("active");
+          });
+        });
+      }
+
+      // ── CHART HELPER ─────────────────────────────────────────────────────
+      function mkChart(id, type, data, options = {}) {
+        const canvas = document.getElementById(id);
+        if (!canvas) return;
+        new Chart(canvas, {
+          type,
+          data,
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            interaction: { mode: "index", intersect: false },
+            ...options,
+          },
+        });
+      }
+    </script>
+  </body>
+</html>
