@@ -1,6 +1,13 @@
 *.csv
 *.json
+*.npy
 __pycache__/
 .ipynb_checkpoints/
 extra/
 model-deploy.md
+.claude/
+.agents/
+.venv/
+.cache/
+output/
+docs/
