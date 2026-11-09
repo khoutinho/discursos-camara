@@ -9,8 +9,12 @@ from .config import ESPECTRO, ESPECTRO_3, UF_REGIAO
 
 def load_and_clean(csv_path: str, encoding: str = 'utf-8-sig') -> pd.DataFrame:
     """Carrega CSV de discursos e faz limpeza básica (datas, colunas derivadas)."""
-    df = pd.read_csv(csv_path, encoding=encoding)
+    return clean(pd.read_csv(csv_path, encoding=encoding))
 
+
+def clean(df: pd.DataFrame) -> pd.DataFrame:
+    """Adiciona Data_dt, Ano e Mes; descarta linhas sem data válida."""
+    df = df.copy()
     df['Data_dt'] = pd.to_datetime(df['Data'], format='%d/%m/%Y', errors='coerce')
     df['Ano'] = df['Data_dt'].dt.year.astype('Int64')
     df['Mes'] = df['Data_dt'].dt.month.astype('Int64')

@@ -1,0 +1,1558 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NLP Dashboard — Discursos da Câmara</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0a0c10;
+        --surface: #10131a;
+        --surface2: #171b24;
+        --border: #1e2330;
+        --border2: #2a3044;
+        --text: #d8dde8;
+        --dim: #6b7592;
+        --esq: #ff4d6d;
+        --cen: #ffa94d;
+        --dir: #4da6ff;
+        --semc: #92ddcc;
+        --accent: #00e5b0;
+        --accent2: #b388ff;
+        --c1: #ff4d6d;
+        --c2: #4da6ff;
+        --c3: #92ddcc;
+        --c4: #ffa94d;
+        --c5: #b388ff;
+        --c6: #69db7c;
+        --c7: #ffd43b;
+        --c8: #74c0fc;
+        --c9: #ff8787;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "IBM Plex Sans", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        font-size: 13px;
+      }
+
+      /* ── LOADER ── */
+      #loader {
+        position: fixed;
+        inset: 0;
+        background: var(--bg);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 999;
+        gap: 2rem;
+      }
+
+      #loader h1 {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 1.4rem;
+        color: var(--accent);
+        letter-spacing: -0.02em;
+      }
+
+      #loader p {
+        color: var(--dim);
+        font-size: 0.8rem;
+        max-width: 360px;
+        text-align: center;
+        line-height: 1.6;
+      }
+
+      .upload-zone {
+        border: 2px dashed var(--border2);
+        border-radius: 12px;
+        padding: 2.5rem 3rem;
+        text-align: center;
+        cursor: pointer;
+        transition:
+          border-color 0.2s,
+          background 0.2s;
+        max-width: 420px;
+        width: 100%;
+      }
+
+      .upload-zone:hover {
+        border-color: var(--accent);
+        background: rgba(0, 229, 176, 0.03);
+      }
+
+      .upload-zone input {
+        display: none;
+      }
+
+      .upload-zone .icon {
+        font-size: 2rem;
+        margin-bottom: 0.8rem;
+      }
+
+      .upload-zone .hint {
+        font-size: 0.75rem;
+        color: var(--dim);
+        margin-top: 0.5rem;
+      }
+
+      .btn-demo {
+        background: transparent;
+        border: 1px solid var(--border2);
+        color: var(--dim);
+        padding: 0.6rem 1.4rem;
+        border-radius: 6px;
+        cursor: pointer;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.72rem;
+        transition: all 0.2s;
+      }
+
+      .btn-demo:hover {
+        border-color: var(--accent2);
+        color: var(--accent2);
+      }
+
+      /* ── HEADER ── */
+      .header {
+        padding: 1.5rem 2rem 1rem;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+
+      .header-title h1 {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 1.15rem;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        color: var(--accent);
+        margin-bottom: 0.25rem;
+      }
+
+      .header-title p {
+        color: var(--dim);
+        font-size: 0.75rem;
+        line-height: 1.5;
+        max-width: 540px;
+      }
+
+      .tag {
+        display: inline-block;
+        padding: 0.2rem 0.6rem;
+        border-radius: 3px;
+        font-size: 0.65rem;
+        font-family: "IBM Plex Mono", monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-right: 0.3rem;
+      }
+
+      .tag-esq {
+        background: rgba(255, 77, 109, 0.15);
+        color: var(--esq);
+      }
+
+      .tag-cen {
+        background: rgba(255, 169, 77, 0.15);
+        color: var(--cen);
+      }
+
+      .tag-dir {
+        background: rgba(77, 166, 255, 0.15);
+        color: var(--dir);
+      }
+
+      .tag-neu {
+        background: rgba(107, 117, 146, 0.2);
+        color: var(--dim);
+      }
+
+      /* ── STATS BAR ── */
+      .stats-bar {
+        display: flex;
+        gap: 0;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        overflow-x: auto;
+      }
+
+      .stat {
+        padding: 0.9rem 1.4rem;
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        min-width: 100px;
+      }
+
+      .stat-val {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--accent);
+        letter-spacing: -0.03em;
+      }
+
+      .stat-lbl {
+        font-size: 0.65rem;
+        color: var(--dim);
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+      }
+
+      /* ── TABS ── */
+      .tabs {
+        display: flex;
+        gap: 0;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        overflow-x: auto;
+        padding: 0 1rem;
+      }
+
+      .tab {
+        padding: 0.8rem 1.1rem;
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: var(--dim);
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        transition: all 0.15s;
+        white-space: nowrap;
+        letter-spacing: 0.01em;
+      }
+
+      .tab:hover {
+        color: var(--text);
+      }
+
+      .tab.active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+      }
+
+      /* ── CONTENT ── */
+      .content {
+        padding: 1.5rem 2rem;
+      }
+
+      .section {
+        display: none;
+      }
+
+      .section.active {
+        display: block;
+      }
+
+      /* ── GRID ── */
+      .grid {
+        display: grid;
+        gap: 1rem;
+      }
+
+      .grid-2 {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .grid-3 {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .col-span-2 {
+        grid-column: span 2;
+      }
+
+      .col-span-3 {
+        grid-column: span 3;
+      }
+
+      /* ── CARD ── */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 1.1rem;
+      }
+
+      .card-title {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--dim);
+        margin-bottom: 0.9rem;
+      }
+
+      canvas {
+        max-height: 340px;
+      }
+
+      /* ── INSIGHT ── */
+      .insight {
+        background: var(--surface2);
+        border-left: 3px solid var(--accent);
+        padding: 0.9rem 1.1rem;
+        border-radius: 0 6px 6px 0;
+        font-size: 0.78rem;
+        line-height: 1.7;
+        color: var(--dim);
+        margin-top: 0.8rem;
+      }
+
+      .insight strong {
+        color: var(--text);
+      }
+
+      .insight.warn {
+        border-left-color: var(--cen);
+      }
+
+      .insight.info {
+        border-left-color: var(--dir);
+      }
+
+      /* ── STAT CARDS ── */
+      .stat-cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+      }
+
+      .stat-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 1rem 1.2rem;
+      }
+
+      .stat-card-val {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 1.6rem;
+        font-weight: 700;
+        margin: 0.3rem 0 0.2rem;
+      }
+
+      .stat-card-lbl {
+        font-size: 0.68rem;
+        color: var(--dim);
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+      }
+
+      .stat-card-sub {
+        font-size: 0.72rem;
+        color: var(--dim);
+        margin-top: 0.3rem;
+      }
+
+      /* ── MANN-KENDALL TABLE ── */
+      .mk-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.8rem;
+        margin-top: 0.8rem;
+      }
+
+      .mk-card {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.9rem 1rem;
+      }
+
+      .mk-card-title {
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--dim);
+        margin-bottom: 0.5rem;
+      }
+
+      .mk-val {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 1.1rem;
+        font-weight: 600;
+      }
+
+      .mk-trend-up {
+        color: #69db7c;
+      }
+
+      .mk-trend-dn {
+        color: var(--esq);
+      }
+
+      .mk-trend-no {
+        color: var(--dim);
+      }
+
+      .mk-sub {
+        font-size: 0.72rem;
+        color: var(--dim);
+        margin-top: 0.3rem;
+      }
+
+      /* ── TABLE ── */
+      .tbl-wrap {
+        overflow-x: auto;
+        margin-top: 0.5rem;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th {
+        text-align: left;
+        padding: 0.5rem 0.7rem;
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--dim);
+        border-bottom: 1px solid var(--border2);
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      td {
+        padding: 0.45rem 0.7rem;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.78rem;
+      }
+
+      tr:hover td {
+        background: var(--surface2);
+      }
+
+      .num {
+        font-family: "IBM Plex Mono", monospace;
+      }
+
+      /* ── WORD CLOUD ── */
+      .wcloud {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        padding: 0.5rem 0;
+        align-items: center;
+      }
+
+      .wtag {
+        padding: 0.25rem 0.6rem;
+        border-radius: 3px;
+        font-family: "IBM Plex Mono", monospace;
+        cursor: default;
+        transition: opacity 0.15s;
+      }
+
+      .wtag:hover {
+        opacity: 1 !important;
+      }
+
+      /* ── TOPIC BARS ── */
+      .topic-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+      }
+
+      .topic-row {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+      }
+
+      .topic-label {
+        font-size: 0.72rem;
+        color: var(--text);
+        min-width: 200px;
+        max-width: 200px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .topic-bar-wrap {
+        flex: 1;
+        height: 16px;
+        background: var(--surface2);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+
+      .topic-bar {
+        height: 100%;
+        border-radius: 2px;
+        transition: width 0.6s ease;
+      }
+
+      .topic-pct {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.68rem;
+        color: var(--dim);
+        min-width: 36px;
+        text-align: right;
+      }
+
+      /* ── NOTE ── */
+      .note {
+        background: rgba(107, 117, 146, 0.08);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.7rem 1rem;
+        font-size: 0.75rem;
+        color: var(--dim);
+        margin-bottom: 1rem;
+        line-height: 1.6;
+      }
+
+      .note strong {
+        color: var(--cen);
+      }
+
+      /* ── EMPTY ── */
+      .empty {
+        padding: 2rem;
+        text-align: center;
+        color: var(--dim);
+        font-size: 0.8rem;
+      }
+
+      .card-desc {
+        font-size: 0.72rem;
+        color: var(--dim);
+        margin-bottom: 0.8rem;
+        line-height: 1.6;
+      }
+
+      .header-meta {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.68rem !important;
+        margin-top: 0.4rem;
+      }
+
+      .header-actions {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+      }
+
+      a.btn-demo {
+        text-decoration: none;
+      }
+
+      .loader-error {
+        color: var(--esq) !important;
+      }
+
+      .card-title {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 0.6rem;
+      }
+
+      .btn-png {
+        flex: none;
+        background: transparent;
+        border: 1px solid var(--border2);
+        color: var(--dim);
+        border-radius: 4px;
+        padding: 0.15rem 0.45rem;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.6rem;
+        letter-spacing: 0.05em;
+        cursor: pointer;
+      }
+
+      .btn-png:hover,
+      .btn-png:focus-visible {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .mk-grid {
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }
+
+      body.standalone .app-only {
+        display: none;
+      }
+
+      @media (max-width: 900px) {
+        .grid-2,
+        .grid-3 {
+          grid-template-columns: 1fr;
+        }
+
+        .col-span-2,
+        .col-span-3 {
+          grid-column: span 1;
+        }
+
+        .stat-cards {
+          grid-template-columns: repeat(2, 1fr);
+        }
+
+        .mk-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .content {
+          padding: 1rem;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- LOADER / FILE INPUT -->
+    <div id="loader">
+      <h1>// CÂMARA NLP</h1>
+      <p>
+        Dashboard de análise dos discursos parlamentares sobre violência contra
+        a mulher e temas relacionados.
+      </p>
+      <label class="upload-zone" id="dropzone">
+        <div class="icon">📂</div>
+        <div><strong>Clique para carregar o dashboard_data.json</strong></div>
+        <div class="hint">Gerado por uma análise do app (botão "JSON")</div>
+        <input type="file" id="json-input" accept=".json" />
+      </label>
+      <p id="loader-error" class="loader-error" hidden></p>
+      <a class="btn-demo app-only" href="/">← Voltar ao app</a>
+    </div>
+
+    <!-- DASHBOARD (hidden until data loads) -->
+    <div id="app" style="display: none">
+      <div class="header">
+        <div class="header-title">
+          <h1>CÂMARA DOS DEPUTADOS — ANÁLISE NLP</h1>
+          <p id="header-desc"></p>
+          <p id="header-meta" class="header-meta"></p>
+        </div>
+        <div class="header-actions">
+          <a class="btn-demo app-only" href="/">← Voltar ao app</a>
+          <button class="btn-demo" id="btn-json">Baixar JSON</button>
+        </div>
+      </div>
+
+      <div class="stats-bar" id="stats-bar"></div>
+
+      <div class="tabs">
+        <div class="tab active" data-section="geral">Visão Geral</div>
+        <div class="tab" data-section="espectro">Esquerda × Direita</div>
+        <div class="tab" data-section="topicos">Tópicos</div>
+        <div class="tab" data-section="regioes">Regiões</div>
+        <div class="tab" data-section="partidos">Partidos</div>
+        <div class="tab" data-section="vocab">Vocabulário</div>
+        <div class="tab" data-section="stats">Estatísticas</div>
+      </div>
+
+      <div class="content">
+        <!-- VISÃO GERAL -->
+        <div id="section-geral" class="section active">
+          <div class="grid grid-2">
+            <div class="card">
+              <div class="card-title">
+                Evolução temporal — discursos por ano
+              </div>
+              <canvas id="ch-evolucao"></canvas>
+            </div>
+            <div class="card">
+              <div class="card-title">Distribuição por espectro político</div>
+              <canvas id="ch-donut"></canvas>
+            </div>
+            <div class="card">
+              <div class="card-title">Top 15 partidos por volume</div>
+              <canvas id="ch-partidos"></canvas>
+            </div>
+            <div class="card">
+              <div class="card-title">Distribuição por fase da sessão</div>
+              <canvas id="ch-fase"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- ESPECTRO -->
+        <div id="section-espectro" class="section">
+          <div class="grid">
+            <div class="card col-span-3">
+              <div class="card-title">
+                Esquerda × Centro × Direita — volume absoluto por ano
+              </div>
+              <canvas id="ch-esp-linha"></canvas>
+            </div>
+            <div class="card col-span-3">
+              <div class="card-title">Proporção do espectro por ano (%)</div>
+              <canvas id="ch-esp-pct"></canvas>
+            </div>
+            <div class="card col-span-3">
+              <div class="insight">
+                <strong>Como interpretar:</strong> O gráfico de barras
+                empilhadas mostra a participação relativa de cada espectro ano a
+                ano. Uma proporção crescente da esquerda com linha plana indica
+                mais engajamento relativo, não apenas mais deputados eleitos.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TÓPICOS -->
+        <div id="section-topicos" class="section">
+          <div class="note">
+            Cada tópico é nomeado pelas 5 palavras que mais o caracterizam.
+            As porcentagens consideram o tópico principal de cada discurso e
+            excluem o ruído (<span id="topicos-ruido"></span>).
+          </div>
+          <div class="grid grid-2">
+            <div class="card col-span-2">
+              <div class="card-title">
+                Frequência dos tópicos — proporção no corpus
+              </div>
+              <div id="topic-bars-geral" class="topic-list"></div>
+            </div>
+            <div class="card">
+              <div class="card-title">Tópicos por espectro político (%)</div>
+              <canvas id="ch-topico-esp"></canvas>
+            </div>
+            <div class="card">
+              <div class="card-title">Evolução temporal dos tópicos (%)</div>
+              <canvas id="ch-topico-ano"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- REGIÕES -->
+        <div id="section-regioes" class="section">
+          <div class="grid grid-2">
+            <div class="card">
+              <div class="card-title">Discursos por região</div>
+              <canvas id="ch-regiao-bar"></canvas>
+            </div>
+            <div class="card">
+              <div class="card-title">Discursos por UF (top 15)</div>
+              <canvas id="ch-uf"></canvas>
+            </div>
+            <div class="card col-span-2">
+              <div class="card-title">Tópicos por região (% dos discursos)</div>
+              <canvas id="ch-topicos-reg"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- PARTIDOS -->
+        <div id="section-partidos" class="section">
+          <div class="card">
+            <div class="card-title">
+              Perfil de tópicos dos 15 partidos com mais discursos (% dos
+              discursos do partido, 8 maiores tópicos)
+            </div>
+            <div class="tbl-wrap">
+              <table id="tbl-partidos">
+                <thead>
+                  <tr id="tbl-partidos-head"></tr>
+                </thead>
+                <tbody id="tbl-partidos-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- VOCABULÁRIO -->
+        <div id="section-vocab" class="section">
+          <div class="grid grid-3">
+            <div class="card">
+              <div class="card-title">
+                🔴 Esquerda — palavras mais frequentes
+              </div>
+              <div id="wc-esq" class="wcloud"></div>
+            </div>
+            <div class="card">
+              <div class="card-title">
+                🔵 Direita — palavras mais frequentes
+              </div>
+              <div id="wc-dir" class="wcloud"></div>
+            </div>
+            <div class="card">
+              <div class="card-title">🟡 Centro — palavras mais frequentes</div>
+              <div id="wc-cen" class="wcloud"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ESTATÍSTICAS -->
+        <div id="section-stats" class="section">
+          <div class="card" style="margin-bottom: 1rem">
+            <div class="card-title">
+              Teste de Mann-Kendall — tendências na série temporal
+            </div>
+            <p
+              style="
+                font-size: 0.75rem;
+                color: var(--dim);
+                margin-bottom: 0.8rem;
+                line-height: 1.6;
+              "
+            >
+              Teste não-paramétrico que detecta tendências monotônicas.
+              <strong style="color: var(--text)">p &lt; 0.05</strong> =
+              tendência estatisticamente significativa. Tau positivo =
+              crescimento; negativo = queda.
+            </p>
+            <div class="mk-grid" id="mk-grid"></div>
+          </div>
+
+          <div class="grid grid-2">
+            <div class="card">
+              <div class="card-title">Coeficiente de variação por partido</div>
+              <p
+                style="
+                  font-size: 0.72rem;
+                  color: var(--dim);
+                  margin-bottom: 0.8rem;
+                  line-height: 1.6;
+                "
+              >
+                CV baixo = participação estável ao longo dos anos. CV alto =
+                participação irregular ou concentrada em períodos específicos.
+              </p>
+              <div id="cv-bars" class="topic-list"></div>
+            </div>
+            <div class="card">
+              <div class="card-title">
+                Correlação entre espectros (série anual)
+              </div>
+              <p class="card-desc">
+                Pearson: os dois espectros sobem e descem juntos ao longo dos
+                anos? Cosseno: quão parecido é o formato das duas séries
+                (1 = idêntico).
+              </p>
+              <div class="tbl-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Par</th><th class="num">Pearson r</th><th class="num">p</th><th class="num">Cosseno</th></tr>
+                  </thead>
+                  <tbody id="tbl-corr-body"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="card col-span-2">
+              <div class="card-title">
+                Tendência de cada tópico — Mann-Kendall sobre a contagem anual
+              </div>
+              <div class="tbl-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Tópico</th><th class="num">Discursos</th><th>Tendência</th><th class="num">p</th><th class="num">τ</th></tr>
+                  </thead>
+                  <tbody id="tbl-mk-topicos-body"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="card col-span-2">
+              <div class="card-title">Metodologia — parâmetros desta análise</div>
+              <p class="card-desc" id="modelo-resumo"></p>
+              <div class="tbl-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Etapa</th><th>Parâmetro</th><th>Valor</th><th>Descrição</th></tr>
+                  </thead>
+                  <tbody id="tbl-metodologia-body"></tbody>
+                </table>
+              </div>
+              <button class="btn-demo" id="btn-metodologia" style="margin-top: 0.8rem">
+                Exportar tabela (CSV)
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- /content -->
+    </div>
+    <!-- /app -->
+
+    <!--DASHBOARD_DATA-->
+    <script>
+      // ── CHART DEFAULTS ──────────────────────────────────────────────────
+      Chart.defaults.color = "#6b7592";
+      Chart.defaults.borderColor = "#1e2330";
+      Chart.defaults.font.family = "'IBM Plex Sans', sans-serif";
+      Chart.defaults.font.size = 11;
+      Chart.defaults.plugins.legend.labels.usePointStyle = true;
+      Chart.defaults.plugins.legend.labels.padding = 14;
+      Chart.defaults.plugins.tooltip.backgroundColor = "#171b24";
+      Chart.defaults.plugins.tooltip.borderColor = "#2a3044";
+      Chart.defaults.plugins.tooltip.borderWidth = 1;
+      Chart.defaults.plugins.tooltip.titleColor = "#d8dde8";
+      Chart.defaults.plugins.tooltip.bodyColor = "#6b7592";
+      Chart.defaults.plugins.tooltip.padding = 10;
+
+      // canvas is transparent; paint the card colour behind the chart only while exporting a PNG
+      Chart.register({
+        id: "exportBackground",
+        beforeDraw(chart) {
+          if (!chart.$exportBg) return;
+          const { ctx, width, height } = chart;
+          ctx.save();
+          ctx.globalCompositeOperation = "destination-over";
+          ctx.fillStyle = chart.$exportBg;
+          ctx.fillRect(0, 0, width, height);
+          ctx.restore();
+        },
+      });
+
+      const C = {
+        esq: "#ff4d6d",
+        cen: "#ffa94d",
+        dir: "#4da6ff",
+        acc: "#00e5b0",
+        semc: "#92ddcc",
+        palette: [
+          "#ff4d6d",
+          "#4da6ff",
+          "#00e5b0",
+          "#ffa94d",
+          "#b388ff",
+          "#69db7c",
+          "#ffd43b",
+          "#74c0fc",
+          "#ff8787",
+          "#a9e34b",
+        ],
+        regioes: ["#00e5b0", "#ffa94d", "#4da6ff", "#ff4d6d", "#b388ff"],
+      };
+      const ESPECTROS = ["Esquerda", "Centro", "Direita"];
+      const espColor = (e) =>
+        e === "Esquerda" ? C.esq : e === "Direita" ? C.dir : e === "Centro" ? C.cen : C.semc;
+
+      const scaleOpts = () => ({
+        y: { grid: { color: "#1e2330" }, beginAtZero: true },
+        x: { grid: { display: false } },
+      });
+      const pctScales = () => ({
+        y: { grid: { color: "#1e2330" }, beginAtZero: true, ticks: { callback: (v) => v + "%" } },
+        x: { grid: { display: false } },
+      });
+
+      const esc = (s) =>
+        String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      const short = (t, n = 20) => (t.length > n ? t.slice(0, n - 2) + "…" : t);
+      const num = (v, digits) => (v == null ? "—" : Number(v).toFixed(digits));
+
+      let D = null; // dados normalizados
+      let RAW = null; // JSON original, para "Baixar JSON"
+
+      // ── CARREGAMENTO ────────────────────────────────────────────────────
+      // 1) dados embutidos (dashboard exportado em HTML) 2) ?run=ID (app) 3) arquivo escolhido
+      async function boot() {
+        if (window.DASHBOARD_DATA) {
+          document.body.classList.add("standalone");
+          return initDashboard(window.DASHBOARD_DATA);
+        }
+        if (location.protocol === "file:") document.body.classList.add("standalone");
+        const run = new URLSearchParams(location.search).get("run");
+        if (!run) return;
+        try {
+          const resp = await fetch(`/api/runs/${encodeURIComponent(run)}/dashboard_data.json`);
+          if (!resp.ok) throw new Error(`análise ${run} não encontrada ou ainda não concluída`);
+          initDashboard(await resp.json());
+        } catch (err) {
+          loaderError(`Não foi possível carregar a análise: ${err.message}`);
+        }
+      }
+
+      document.getElementById("json-input").addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            initDashboard(JSON.parse(ev.target.result));
+          } catch (err) {
+            loaderError("Erro ao ler o JSON: " + err.message);
+          }
+        };
+        reader.readAsText(file);
+      });
+
+      function loaderError(msg) {
+        const el = document.getElementById("loader-error");
+        el.textContent = msg;
+        el.hidden = false;
+      }
+
+      function initDashboard(data) {
+        if (!data.modelo || !data.evolucao_temporal) {
+          throw new Error(
+            "este JSON não é do formato novo (gerado pelo app). JSONs do pipeline antigo não são compatíveis.",
+          );
+        }
+        RAW = data;
+        D = structuredClone(data);
+        normalizeData();
+
+        document.getElementById("loader").style.display = "none";
+        document.getElementById("app").style.display = "block";
+
+        // each step on its own: a failure in one tab must not blank the others
+        const failed = [];
+        for (const step of [renderHeader, renderStats, renderGeral, renderEspectro, renderTopicos,
+                            renderRegioes, renderPartidos, renderVocab, renderEstatisticas, bindTabs, addPngButtons]) {
+          try {
+            step();
+          } catch (err) {
+            console.error(step.name, err);
+            failed.push(`${step.name}: ${err.message}`);
+          }
+        }
+        if (failed.length) {
+          const note = document.createElement("div");
+          note.className = "note";
+          note.style.margin = "1rem 2rem 0";
+          note.innerHTML = "<strong>Parte do dashboard não pôde ser exibida.</strong> ";
+          note.append(failed.join(" · "));
+          document.querySelector(".tabs").after(note);
+        }
+      }
+
+      function normalizeData() {
+        D.evolucao_temporal = D.evolucao_temporal.map((d) => ({ ...d, Total: d.Total || 0 }));
+        D.por_uf = (D.por_uf || []).map((d) => ({ uf: d.uf || d.Estado || "", count: d.count || 0 }));
+        D.por_regiao = (D.por_regiao || []).map((d) => ({ regiao: d.regiao || d.Regiao || "", count: d.count || 0 }));
+        D.por_fase = (D.por_fase || []).map((d) => ({ fase: d.fase || d.Fase || "", count: d.count || 0 }));
+      }
+
+      // ── CABEÇALHO ───────────────────────────────────────────────────────
+      function renderHeader() {
+        const info = D.info || {};
+        document.getElementById("header-desc").textContent = info.dataset || "Análise de tópicos dos discursos";
+        const p = info.parametros || {};
+        const br = (iso) => iso.split("-").reverse().join("/");
+        const parts = [
+          info.keywords?.length ? `keywords: ${info.keywords.join(", ")}` : null,
+          info.periodo ? `${br(info.periodo[0])} a ${br(info.periodo[1])}` : null,
+          p.embedding_model ? `modelo: ${p.embedding_model}` : null,
+          p.embedding_model ? (p.nr_topics == null ? "sem redução de tópicos" : `nr_topics: ${p.nr_topics}`) : null,
+          p.threshold != null ? `threshold: ${p.threshold}` : null,
+          info.gerado_em ? `gerado em ${new Date(info.gerado_em).toLocaleString("pt-BR")}` : null,
+        ];
+        document.getElementById("header-meta").textContent = parts.filter(Boolean).join(" · ");
+        document.title = `${info.dataset || "Dashboard"} — Câmara NLP`;
+
+        document.getElementById("btn-json").onclick = () => {
+          const blob = new Blob([JSON.stringify(RAW, null, 2)], { type: "application/json" });
+          download(URL.createObjectURL(blob), `dashboard_data${info.run_id ? "_" + info.run_id : ""}.json`, true);
+        };
+      }
+
+      // ── STATS BAR ───────────────────────────────────────────────────────
+      function espectroTotals() {
+        const espCount = {};
+        D.espectro_por_ano?.forEach((d) => {
+          espCount[d.Espectro] = (espCount[d.Espectro] || 0) + d.count;
+        });
+        return espCount;
+      }
+
+      function renderStats() {
+        const total = D.modelo.n_discursos;
+        const anos = D.evolucao_temporal;
+        const periodo = anos.length ? `${anos[0].Ano}–${anos[anos.length - 1].Ano}` : "—";
+        const espCount = espectroTotals();
+        const totalEsp = Object.values(espCount).reduce((a, b) => a + b, 0);
+        const esqPct = totalEsp ? Math.round(((espCount["Esquerda"] || 0) / totalEsp) * 100) : "—";
+
+        const items = [
+          { val: total.toLocaleString("pt-BR"), lbl: "Discursos" },
+          { val: periodo, lbl: "Período" },
+          { val: D.modelo.n_topicos, lbl: "Tópicos" },
+          { val: D.modelo.pct_ruido + "%", lbl: "Ruído" },
+          { val: (espCount["Esquerda"] || 0).toLocaleString("pt-BR"), lbl: "Esquerda" },
+          { val: (espCount["Centro"] || 0).toLocaleString("pt-BR"), lbl: "Centro" },
+          { val: (espCount["Direita"] || 0).toLocaleString("pt-BR"), lbl: "Direita" },
+          { val: esqPct + "%", lbl: "Share Esq." },
+        ];
+        document.getElementById("stats-bar").innerHTML = items
+          .map((i) => `<div class="stat"><span class="stat-val">${esc(i.val)}</span><span class="stat-lbl">${i.lbl}</span></div>`)
+          .join("");
+      }
+
+      // ── GERAL ───────────────────────────────────────────────────────────
+      function renderGeral() {
+        mkChart(
+          "ch-evolucao",
+          "bar",
+          {
+            labels: D.evolucao_temporal.map((d) => d.Ano),
+            datasets: [
+              {
+                data: D.evolucao_temporal.map((d) => d.Total),
+                backgroundColor: D.evolucao_temporal.map((_, i, arr) => `rgba(0,229,176,${0.3 + (i / arr.length) * 0.65})`),
+                borderRadius: 3,
+                barPercentage: 0.7,
+              },
+            ],
+          },
+          { plugins: { legend: { display: false } }, scales: scaleOpts() },
+        );
+
+        const espCount = espectroTotals();
+        const espLabels = Object.keys(espCount);
+        mkChart(
+          "ch-donut",
+          "doughnut",
+          {
+            labels: espLabels,
+            datasets: [{ data: Object.values(espCount), backgroundColor: espLabels.map(espColor), borderWidth: 0, hoverOffset: 6 }],
+          },
+          { cutout: "58%", plugins: { legend: { position: "bottom" } } },
+        );
+
+        const espMap = {};
+        D.partidos_topicos?.forEach((p) => (espMap[p.partido] = p.espectro));
+        mkChart(
+          "ch-partidos",
+          "bar",
+          {
+            labels: D.top_partidos.map((d) => d.partido),
+            datasets: [
+              {
+                data: D.top_partidos.map((d) => d.count),
+                backgroundColor: D.top_partidos.map((d) => espColor(espMap[d.partido]) + "cc"),
+                borderRadius: 3,
+              },
+            ],
+          },
+          {
+            indexAxis: "y",
+            interaction: { mode: "index", axis: "y", intersect: false },
+            plugins: { legend: { display: false } },
+            scales: { x: { grid: { color: "#1e2330" }, beginAtZero: true }, y: { grid: { display: false } } },
+          },
+        );
+
+        if (D.por_fase.length) {
+          mkChart(
+            "ch-fase",
+            "bar",
+            {
+              labels: D.por_fase.map((d) => d.fase),
+              datasets: [{ data: D.por_fase.map((d) => d.count), backgroundColor: C.acc + "99", borderRadius: 3 }],
+            },
+            {
+              indexAxis: "y",
+              interaction: { mode: "index", axis: "y", intersect: false },
+              plugins: { legend: { display: false } },
+              scales: { x: { grid: { color: "#1e2330" }, beginAtZero: true }, y: { grid: { display: false } } },
+            },
+          );
+        }
+      }
+
+      // ── ESPECTRO ─────────────────────────────────────────────────────────
+      function renderEspectro() {
+        const anos = [...new Set(D.espectro_por_ano.map((d) => d.Ano))].sort();
+        const count = (a, esp) => D.espectro_por_ano.find((d) => d.Ano === a && d.Espectro === esp)?.count || 0;
+
+        mkChart(
+          "ch-esp-linha",
+          "line",
+          {
+            labels: anos,
+            datasets: ESPECTROS.map((esp) => ({
+              label: esp,
+              data: anos.map((a) => count(a, esp)),
+              borderColor: espColor(esp),
+              backgroundColor: espColor(esp) + "22",
+              fill: true,
+              tension: 0.35,
+              pointRadius: 3,
+            })),
+          },
+          { scales: scaleOpts() },
+        );
+
+        const totalAno = (a) => D.espectro_por_ano.filter((d) => d.Ano === a).reduce((s, d) => s + d.count, 0);
+        mkChart(
+          "ch-esp-pct",
+          "bar",
+          {
+            labels: anos,
+            datasets: ESPECTROS.map((esp) => ({
+              label: esp,
+              data: anos.map((a) => (count(a, esp) / totalAno(a)) * 100 || 0),
+              backgroundColor: espColor(esp),
+            })),
+          },
+          {
+            plugins: { tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.y.toFixed(1)}%` } } },
+            scales: {
+              y: { stacked: true, max: 100, grid: { color: "#1e2330" }, ticks: { callback: (v) => v + "%" } },
+              x: { stacked: true, grid: { display: false } },
+            },
+          },
+        );
+      }
+
+      // ── TÓPICOS ──────────────────────────────────────────────────────────
+      // full topic label in the tooltip title; axis/legend labels are shortened
+      const fullTitle = (labels) => ({ tooltip: { callbacks: { title: (items) => labels[items[0].dataIndex] } } });
+
+      function renderTopicos() {
+        const freq = D.topicos_freq || [];
+        document.getElementById("topicos-ruido").textContent =
+          `${D.modelo.pct_ruido}% dos discursos não se encaixaram em nenhum tópico`;
+
+        const container = document.getElementById("topic-bars-geral");
+        if (!freq.length) {
+          container.innerHTML = '<div class="empty">Nenhum tópico encontrado nesta análise.</div>';
+          return;
+        }
+        const maxPct = Math.max(...freq.map((d) => d.pct));
+        container.innerHTML = freq
+          .map((d, i) => {
+            const pct = parseFloat(d.pct);
+            return `
+      <div class="topic-row">
+        <div class="topic-label" title="${esc(d.topico)}">${esc(d.topico)}</div>
+        <div class="topic-bar-wrap">
+          <div class="topic-bar" style="width:${((pct / maxPct) * 100).toFixed(1)}%; background:${C.palette[i % C.palette.length]}99"></div>
+        </div>
+        <div class="topic-pct">${pct.toFixed(1)}%</div>
+      </div>`;
+          })
+          .join("");
+
+        const porEsp = D.topicos_por_espectro || [];
+        const topicosTop = freq.slice(0, 8).map((d) => d.topico);
+        mkChart(
+          "ch-topico-esp",
+          "bar",
+          {
+            labels: topicosTop.map((t) => short(t)),
+            datasets: ESPECTROS.filter((esp) => porEsp.some((d) => d.espectro === esp)).map((esp) => ({
+              label: esp,
+              data: topicosTop.map((t) => porEsp.find((d) => d.espectro === esp && d.topico === t)?.pct || 0),
+              backgroundColor: espColor(esp),
+            })),
+          },
+          { plugins: fullTitle(topicosTop), scales: pctScales() },
+        );
+
+        const porAno = D.topicos_por_ano || [];
+        const anos = [...new Set(porAno.map((d) => d.ano))].sort();
+        mkChart(
+          "ch-topico-ano",
+          "line",
+          {
+            labels: anos,
+            datasets: freq.slice(0, 5).map((d, i) => ({
+              label: short(d.topico, 22),
+              data: anos.map((a) => porAno.find((r) => r.ano === a && r.topico === d.topico)?.pct || 0),
+              borderColor: C.palette[i],
+              backgroundColor: "transparent",
+              tension: 0.3,
+              pointRadius: 3,
+            })),
+          },
+          { scales: pctScales() },
+        );
+      }
+
+      // ── REGIÕES ──────────────────────────────────────────────────────────
+      function renderRegioes() {
+        if (D.por_regiao.length) {
+          const sorted = [...D.por_regiao].sort((a, b) => b.count - a.count);
+          mkChart(
+            "ch-regiao-bar",
+            "bar",
+            {
+              labels: sorted.map((d) => d.regiao),
+              datasets: [{ data: sorted.map((d) => d.count), backgroundColor: C.regioes, borderRadius: 4 }],
+            },
+            { plugins: { legend: { display: false } }, scales: scaleOpts() },
+          );
+        }
+
+        if (D.por_uf.length) {
+          const sorted = [...D.por_uf].sort((a, b) => b.count - a.count).slice(0, 15);
+          mkChart(
+            "ch-uf",
+            "bar",
+            {
+              labels: sorted.map((d) => d.uf),
+              datasets: [{ data: sorted.map((d) => d.count), backgroundColor: C.acc + "99", borderRadius: 3 }],
+            },
+            { plugins: { legend: { display: false } }, scales: scaleOpts() },
+          );
+        }
+
+        const porReg = D.topicos_por_regiao || [];
+        const regioes = [...new Set(porReg.map((d) => d.regiao))];
+        const topicos = (D.topicos_freq || []).slice(0, 5).map((d) => d.topico);
+        if (regioes.length && topicos.length) {
+          mkChart(
+            "ch-topicos-reg",
+            "bar",
+            {
+              labels: regioes,
+              datasets: topicos.map((t, i) => ({
+                label: short(t, 22),
+                data: regioes.map((r) => porReg.find((d) => d.regiao === r && d.topico === t)?.pct || 0),
+                backgroundColor: C.palette[i],
+              })),
+            },
+            { scales: pctScales() },
+          );
+        }
+      }
+
+      // ── PARTIDOS ─────────────────────────────────────────────────────────
+      function renderPartidos() {
+        const partidos = D.partidos_topicos || [];
+        if (!partidos.length) return;
+        const topicos = Object.keys(partidos[0].topicos);
+        document.getElementById("tbl-partidos-head").innerHTML =
+          `<th>Partido</th><th>Espectro</th><th class="num">Discursos</th>` +
+          topicos.map((t) => `<th title="${esc(t)}">${esc(short(t, 16))}</th>`).join("");
+
+        document.getElementById("tbl-partidos-body").innerHTML = partidos
+          .map((p) => {
+            const cls = p.espectro === "Esquerda" ? "tag-esq" : p.espectro === "Direita" ? "tag-dir" : p.espectro === "Centro" ? "tag-cen" : "tag-neu";
+            const cells = topicos
+              .map((t) => {
+                const v = p.topicos[t] || 0;
+                const bg = v > 10 ? `rgba(0,229,176,${Math.min(v / 40, 1) * 0.35})` : "";
+                return `<td class="num" style="background:${bg}">${v.toFixed(1)}%</td>`;
+              })
+              .join("");
+            return `<tr>
+      <td><strong>${esc(p.partido)}</strong></td>
+      <td><span class="tag ${cls}">${esc(p.espectro)}</span></td>
+      <td class="num">${p.total.toLocaleString("pt-BR")}</td>${cells}
+    </tr>`;
+          })
+          .join("");
+      }
+
+      // ── VOCABULÁRIO ──────────────────────────────────────────────────────
+      function renderVocab() {
+        const vocab = D.vocabulario || {};
+        [
+          ["Esquerda", "wc-esq", C.esq],
+          ["Direita", "wc-dir", C.dir],
+          ["Centro", "wc-cen", C.cen],
+        ].forEach(([key, id, color]) => {
+          const words = vocab[key] || [];
+          const container = document.getElementById(id);
+          if (!words.length) {
+            container.innerHTML = '<div class="empty">Sem discursos deste espectro.</div>';
+            return;
+          }
+          const max = Math.max(...words.map((w) => w.count));
+          words.forEach((w) => {
+            const scale = 0.35 + (w.count / max) * 0.65;
+            const span = document.createElement("span");
+            span.className = "wtag";
+            span.textContent = w.word;
+            span.title = `${w.word}: ${w.count.toLocaleString("pt-BR")}`;
+            span.style.fontSize = 0.65 + scale * 0.65 + "rem";
+            span.style.opacity = 0.5 + scale * 0.5;
+            span.style.background = color + Math.round(scale * 45).toString(16).padStart(2, "0");
+            span.style.color = color;
+            container.appendChild(span);
+          });
+        });
+      }
+
+      // ── ESTATÍSTICAS ─────────────────────────────────────────────────────
+      const TREND = {
+        increasing: ["crescente", "mk-trend-up", " ↑"],
+        decreasing: ["decrescente", "mk-trend-dn", " ↓"],
+        "no trend": ["sem tendência", "mk-trend-no", " →"],
+      };
+      const trendOf = (t) => TREND[t] || [t || "—", "mk-trend-no", ""];
+
+      function renderEstatisticas() {
+        const cards = [
+          { titulo: "Total de discursos", cor: C.acc, ...D.mann_kendall_geral },
+          ...(D.mann_kendall_por_espectro || []).map((r) => ({ titulo: r.espectro, cor: espColor(r.espectro), ...r })),
+        ];
+        document.getElementById("mk-grid").innerHTML = cards
+          .map((r) => {
+            const [label, cls, icon] = trendOf(r.tendencia);
+            return `
+        <div class="mk-card">
+          <div class="mk-card-title" style="color:${r.cor}">${esc(r.titulo)}</div>
+          <div class="mk-val ${cls}">${esc(label)}${icon}</div>
+          <div class="mk-sub">p = ${num(r.p, 4)} &nbsp;|&nbsp; τ = ${num(r.tau, 3)}</div>
+        </div>`;
+          })
+          .join("");
+        if (cards.some((r) => r.tendencia === "dados insuficientes")) {
+          document.getElementById("mk-grid").insertAdjacentHTML(
+            "afterend",
+            '<p class="card-desc" style="margin-top:0.8rem">"Dados insuficientes": o teste precisa de ao menos 4 anos de dados.</p>',
+          );
+        }
+
+        const cvEl = document.getElementById("cv-bars");
+        const cvData = (D.cv_por_partido || []).filter((d) => d.cv != null);
+        if (!cvData.length) {
+          cvEl.innerHTML = '<div class="empty">Precisa de ao menos 2 anos de dados.</div>';
+        } else {
+          const maxCV = Math.max(...cvData.map((d) => d.cv)) || 1;
+          cvEl.innerHTML = cvData
+            .slice(0, 12)
+            .map((d) => {
+              const color = d.cv < 0.5 ? C.acc : d.cv < 1.0 ? C.cen : C.esq;
+              return `
+        <div class="topic-row">
+          <div class="topic-label" title="${esc(d.partido)}">${esc(d.partido)}</div>
+          <div class="topic-bar-wrap">
+            <div class="topic-bar" style="width:${((d.cv / maxCV) * 100).toFixed(1)}%; background:${color}99"></div>
+          </div>
+          <div class="topic-pct">${d.cv.toFixed(2)}</div>
+        </div>`;
+            })
+            .join("");
+        }
+
+        const cos = Object.fromEntries((D.cosseno || []).map((c) => [c.par, c.cosseno]));
+        const corrRows = (D.pearson || []).map(
+          (r) => `<tr><td>${esc(r.par)}</td><td class="num">${num(r.r, 3)}</td><td class="num">${num(r.p, 4)}</td><td class="num">${num(cos[r.par], 3)}</td></tr>`,
+        );
+        document.getElementById("tbl-corr-body").innerHTML =
+          corrRows.join("") || '<tr><td colspan="4" class="empty">Precisa de ao menos 4 anos de dados.</td></tr>';
+
+        document.getElementById("tbl-mk-topicos-body").innerHTML = (D.mann_kendall_por_topico || [])
+          .map((r) => {
+            const [label, cls, icon] = trendOf(r.tendencia);
+            return `<tr><td title="${esc(r.topico)}">${esc(r.topico)}</td><td class="num">${r.total.toLocaleString("pt-BR")}</td>
+          <td class="${cls}">${esc(label)}${icon}</td><td class="num">${num(r.p, 4)}</td><td class="num">${num(r.tau, 3)}</td></tr>`;
+          })
+          .join("");
+
+        const m = D.modelo;
+        document.getElementById("modelo-resumo").textContent =
+          `${m.n_topicos} tópicos encontrados em ${m.n_discursos.toLocaleString("pt-BR")} discursos; ` +
+          `${m.n_ruido.toLocaleString("pt-BR")} (${m.pct_ruido}%) ficaram como ruído.`;
+        const rows = D.metodologia || [];
+        document.getElementById("tbl-metodologia-body").innerHTML = rows
+          .map((r) => `<tr><td>${esc(r.etapa)}</td><td>${esc(r.parametro)}</td><td class="num">${esc(r.valor)}</td><td>${esc(r.descricao)}</td></tr>`)
+          .join("");
+        document.getElementById("btn-metodologia").onclick = () => {
+          const q = (v) => `"${String(v).replaceAll('"', '""')}"`;
+          const lines = [["Etapa", "Parâmetro", "Valor", "Descrição"], ...rows.map((r) => [r.etapa, r.parametro, r.valor, r.descricao])];
+          const blob = new Blob(["﻿" + lines.map((l) => l.map(q).join(",")).join("\n")], { type: "text/csv" });
+          download(URL.createObjectURL(blob), "metodologia.csv", true);
+        };
+      }
+
+      // ── TABS ─────────────────────────────────────────────────────────────
+      function bindTabs() {
+        document.querySelectorAll(".tab").forEach((tab) => {
+          tab.setAttribute("role", "tab");
+          tab.setAttribute("tabindex", "0");
+          const activate = () => {
+            document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+            document.querySelectorAll(".section").forEach((s) => s.classList.remove("active"));
+            tab.classList.add("active");
+            document.getElementById("section-" + tab.dataset.section).classList.add("active");
+          };
+          tab.addEventListener("click", activate);
+          tab.addEventListener("keydown", (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), activate()));
+        });
+      }
+
+      // ── EXPORTAÇÃO PNG ───────────────────────────────────────────────────
+      function addPngButtons() {
+        document.querySelectorAll(".card").forEach((card) => {
+          const canvas = card.querySelector("canvas");
+          const title = card.querySelector(".card-title");
+          if (!canvas || !title || !Chart.getChart(canvas)) return;
+          const btn = document.createElement("button");
+          btn.className = "btn-png";
+          btn.textContent = "PNG";
+          btn.title = "Baixar este gráfico como imagem PNG";
+          btn.addEventListener("click", () => exportPng(canvas, title.firstChild.textContent));
+          title.appendChild(btn);
+        });
+      }
+
+      function exportPng(canvas, titleText) {
+        const chart = Chart.getChart(canvas);
+        const previous = chart.options.devicePixelRatio;
+        chart.$exportBg = getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || "#10131a";
+        chart.options.devicePixelRatio = 3; // high resolution for papers and slides
+        chart.resize();
+        chart.update("none");
+        const url = chart.toBase64Image("image/png", 1);
+        chart.$exportBg = null;
+        chart.options.devicePixelRatio = previous;
+        chart.resize();
+        chart.update("none");
+
+        const slug = titleText
+          .trim()
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[̀-ͯ]/g, "")
+          .replace(/[^a-z0-9]+/g, "_")
+          .replace(/^_|_$/g, "")
+          .slice(0, 60);
+        download(url, `${slug || "grafico"}.png`);
+      }
+
+      function download(url, filename, revoke = false) {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        if (revoke) setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      // ── CHART HELPER ─────────────────────────────────────────────────────
+      function mkChart(id, type, data, options = {}) {
+        const canvas = document.getElementById(id);
+        if (!canvas) return;
+        new Chart(canvas, {
+          type,
+          data,
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            interaction: { mode: "index", intersect: false },
+            ...options,
+          },
+        });
+      }
+
+      // last: every function and constant above must exist before rendering starts
+      boot();
+    </script>
+  </body>
+</html>

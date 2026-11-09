@@ -13,9 +13,6 @@ Fluxo:
 
 import re
 import warnings
-from dataclasses import dataclass, field
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import spacy
@@ -29,33 +26,22 @@ from sklearn.feature_extraction.text import CountVectorizer
 from umap import UMAP
 
 from .config import STOPWORDS_DOMAIN
+from .model_config import TopicModelConfig, methodology
 
 warnings.filterwarnings('ignore')
 
 
-@dataclass
-class TopicModelConfig:
-    """Parâmetros configuráveis do topic modeling."""
+def iter_encode(texts: list[str], model_name: str, chunk_size: int = 256):
+    """
+    Gera embeddings em blocos, para quem chama poder salvar e mostrar progresso a cada bloco.
 
-    embedding_model: str = 'paraphrase-multilingual-MiniLM-L12-v2'
-
-    # HDBSCAN
-    min_cluster_size: int = 10
-    min_samples: int = 1
-
-    # UMAP
-    umap_n_neighbors: int = 15
-    umap_n_components: int = 5
-    umap_min_dist: float = 0.0
-
-    # reduce_topics: None = automático (sem redução), int = número alvo
-    nr_topics: int | None = None
-
-    # Multi-label: threshold de probabilidade mínima pra atribuir um tópico
-    multi_label_threshold: float = 0.1
-
-    # Cache
-    cache_dir: Path | None = None
+    Yields:
+        (índice inicial do bloco, array float32 do bloco)
+    """
+    embedder = SentenceTransformer(model_name)
+    for start in range(0, len(texts), chunk_size):
+        chunk = texts[start:start + chunk_size]
+        yield start, embedder.encode(chunk, batch_size=32, show_progress_bar=False).astype(np.float32)
 
 
 class TopicModeler:
@@ -66,13 +52,19 @@ class TopicModeler:
         self.model: BERTopic | None = None
         self.embeddings: np.ndarray | None = None
 
-    def fit(self, documents: pd.Series, progress_callback=None) -> dict:
+    def fit(
+        self,
+        documents: pd.Series,
+        progress_callback=None,
+        embeddings: np.ndarray | None = None,
+    ) -> dict:
         """
         Roda o pipeline completo de topic modeling.
 
         Args:
             documents: Series com o texto original (natural, com acentos) de cada discurso.
             progress_callback: Callable(stage: str, pct: float) opcional pra barra de progresso.
+            embeddings: embeddings já calculados (mesma ordem de documents); se None, calcula.
 
         Returns:
             dict com:
@@ -86,13 +78,15 @@ class TopicModeler:
         _cb = progress_callback or (lambda *a: None)
 
         # ── 1. Embeddings sobre texto original ──
-        _cb('embeddings', 0.0)
+        # KeyBERTInspired needs the embedder even when embeddings are precomputed
         embedder = SentenceTransformer(cfg.embedding_model)
-        embeddings = self._get_or_compute_embeddings(documents, embedder)
-        _cb('embeddings', 1.0)
+        if embeddings is None:
+            _cb('embeddings', 0.0)
+            embeddings = self._get_or_compute_embeddings(documents, embedder)
+            _cb('embeddings', 1.0)
 
         # ── 2. Componentes do BERTopic ──
-        _cb('model', 0.0)
+        _cb('clustering', 0.0)
 
         umap_model = UMAP(
             n_neighbors=cfg.umap_n_neighbors,
@@ -138,23 +132,18 @@ class TopicModeler:
         docs_list = documents.tolist()
         topics, probs = self.model.fit_transform(docs_list, embeddings)
 
-        _cb('model', 0.5)
-
         # ── 4. Reduzir tópicos (se configurado) ──
         if cfg.nr_topics is not None:
+            _cb('reduce', 0.0)
             self.model.reduce_topics(docs_list, nr_topics=cfg.nr_topics)
             topics = self.model.topics_
             probs = self.model.probabilities_
-
-        _cb('model', 0.8)
 
         # ── 5. Labels ──
         topic_labels = self._extract_labels()
 
         # ── 6. Multi-label ──
         multi_labels = self._assign_multi_labels(probs, topics, topic_labels)
-
-        _cb('model', 1.0)
 
         self.embeddings = embeddings
 
@@ -165,6 +154,10 @@ class TopicModeler:
             'multi_labels': multi_labels,
             'model': self.model,
         }
+
+    def methodology(self) -> list[dict]:
+        """Parâmetros usados em cada etapa, em formato de tabela (para o paper)."""
+        return methodology(self.config)
 
     def _get_or_compute_embeddings(
         self, documents: pd.Series, embedder: SentenceTransformer,

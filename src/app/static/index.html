@@ -1,0 +1,826 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Câmara NLP</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0a0c10;
+        --surface: #10131a;
+        --surface2: #171b24;
+        --border: #1e2330;
+        --border2: #2a3044;
+        --text: #d8dde8;
+        --dim: #8a93ad;
+        --accent: #00e5b0;
+        --accent2: #b388ff;
+        --warn: #ffa94d;
+        --error: #ff4d6d;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        font-family: "IBM Plex Sans", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 100vh;
+      }
+      .wrap { max-width: 980px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+      h1 {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 1.3rem;
+        color: var(--accent);
+        letter-spacing: -0.02em;
+      }
+      .lead { color: var(--dim); font-size: 0.85rem; margin-top: 0.3rem; max-width: 620px; }
+      h2 {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--dim);
+        margin: 2.2rem 0 0.8rem;
+      }
+
+      /* entry points */
+      .entries { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.8rem; margin-top: 1.5rem; }
+      .entry {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 1rem 1.1rem;
+        text-align: left;
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+        text-decoration: none;
+        transition: border-color 0.15s, background 0.15s;
+      }
+      .entry:hover { border-color: var(--border2); background: var(--surface2); }
+      .entry[aria-pressed="true"] { border-color: var(--accent); }
+      .entry strong { display: block; font-size: 0.95rem; margin-bottom: 0.25rem; }
+      .entry span { color: var(--dim); font-size: 0.8rem; }
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 1.2rem;
+        margin-top: 0.8rem;
+      }
+      .card-title {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--dim);
+        margin-bottom: 1rem;
+      }
+
+      /* forms */
+      .field { margin-bottom: 1rem; }
+      .field label, .field .label {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.8rem;
+        font-weight: 500;
+        margin-bottom: 0.35rem;
+      }
+      .hint { color: var(--dim); font-size: 0.75rem; margin-top: 0.25rem; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+      input[type="text"], input[type="date"], input[type="number"], select, textarea {
+        width: 100%;
+        background: var(--bg);
+        border: 1px solid var(--border2);
+        border-radius: 6px;
+        color: var(--text);
+        font: inherit;
+        padding: 0.5rem 0.6rem;
+        color-scheme: dark;
+      }
+      textarea { min-height: 96px; resize: vertical; font-family: "IBM Plex Mono", monospace; font-size: 0.82rem; }
+      input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      input[type="range"] { width: 100%; accent-color: var(--accent); }
+      .inline { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; }
+      .radio-group { display: flex; gap: 1.2rem; }
+
+      button.btn, a.btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        background: var(--accent);
+        color: #04120e;
+        border: 0;
+        border-radius: 6px;
+        padding: 0.55rem 1rem;
+        font: 600 0.82rem "IBM Plex Sans", sans-serif;
+        cursor: pointer;
+        text-decoration: none;
+      }
+      button.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      .btn.secondary {
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--border2);
+      }
+      .btn.secondary:hover { border-color: var(--accent); }
+      .btn.small { padding: 0.3rem 0.6rem; font-size: 0.75rem; font-weight: 500; }
+      .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+
+      /* help tooltip */
+      .help {
+        position: relative;
+        display: inline-grid;
+        place-items: center;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        border: 1px solid var(--border2);
+        color: var(--dim);
+        font-size: 0.65rem;
+        cursor: help;
+        font-weight: 600;
+      }
+      .help .tip {
+        display: none;
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 6px);
+        transform: translateX(-50%);
+        width: min(300px, 80vw);
+        background: var(--surface2);
+        border: 1px solid var(--border2);
+        border-radius: 6px;
+        padding: 0.6rem 0.7rem;
+        color: var(--text);
+        font-size: 0.75rem;
+        font-weight: 400;
+        line-height: 1.5;
+        z-index: 10;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+      }
+      .help:hover .tip, .help:focus .tip { display: block; }
+
+      /* progress */
+      .progress {
+        height: 10px;
+        background: var(--surface2);
+        border-radius: 5px;
+        overflow: hidden;
+        margin: 0.6rem 0 0.4rem;
+      }
+      .progress > div {
+        height: 100%;
+        width: 0;
+        background: var(--accent);
+        transition: width 0.4s ease;
+      }
+      .progress.indeterminate > div {
+        width: 30%;
+        animation: slide 1.2s ease-in-out infinite;
+      }
+      @keyframes slide { from { margin-left: -30%; } to { margin-left: 100%; } }
+      @media (prefers-reduced-motion: reduce) {
+        .progress.indeterminate > div { animation: none; width: 100%; opacity: 0.5; }
+      }
+      .status-line { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.8rem; color: var(--dim); }
+      .status-line strong { color: var(--text); font-weight: 500; }
+      .stages { list-style: none; margin-top: 0.8rem; display: grid; gap: 0.3rem; font-size: 0.8rem; }
+      .stages li { color: var(--dim); display: flex; gap: 0.5rem; }
+      .stages li::before { content: "○"; width: 1rem; }
+      .stages li.current { color: var(--text); }
+      .stages li.current::before { content: "◐"; color: var(--accent); }
+      .stages li.done::before { content: "●"; color: var(--accent); }
+
+      .msg { border-left: 3px solid var(--accent); background: var(--surface2); padding: 0.6rem 0.8rem; border-radius: 0 6px 6px 0; font-size: 0.8rem; margin-top: 0.8rem; }
+      .msg.warn { border-left-color: var(--warn); }
+      .msg.error { border-left-color: var(--error); }
+
+      /* tables */
+      .tbl-wrap { overflow-x: auto; }
+      table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+      th {
+        text-align: left;
+        font-size: 0.66rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--dim);
+        font-weight: 600;
+        padding: 0.45rem 0.6rem;
+        border-bottom: 1px solid var(--border2);
+        white-space: nowrap;
+      }
+      td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+      td.num { font-family: "IBM Plex Mono", monospace; text-align: right; white-space: nowrap; }
+      td .actions { margin: 0; gap: 0.3rem; flex-wrap: nowrap; }
+      .tag {
+        display: inline-block;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0.1rem 0.45rem;
+        border-radius: 3px;
+        background: rgba(138, 147, 173, 0.15);
+        color: var(--dim);
+        white-space: nowrap;
+      }
+      .tag.done { background: rgba(0, 229, 176, 0.12); color: var(--accent); }
+      .tag.running, .tag.pending { background: rgba(179, 136, 255, 0.15); color: var(--accent2); }
+      .tag.interrupted { background: rgba(255, 169, 77, 0.15); color: var(--warn); }
+      .tag.failed { background: rgba(255, 77, 109, 0.15); color: var(--error); }
+      .empty { color: var(--dim); font-size: 0.8rem; padding: 0.6rem 0; }
+      details summary { cursor: pointer; font-size: 0.82rem; color: var(--accent); margin-top: 1rem; }
+      details table { margin-top: 0.6rem; }
+      [hidden] { display: none !important; }
+
+      @media (max-width: 720px) {
+        .entries, .row { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <header>
+        <h1>// CÂMARA NLP</h1>
+        <p class="lead">
+          Coleta discursos da Câmara dos Deputados, encontra os tópicos com BERTopic e gera o dashboard.
+        </p>
+      </header>
+
+      <div class="entries" role="group" aria-label="Como começar">
+        <button class="entry" data-entry="scrape" aria-pressed="false">
+          <strong>Criar do zero</strong>
+          <span>Escolha keywords e período; o app coleta os discursos no SitaQWeb.</span>
+        </button>
+        <button class="entry" data-entry="import" aria-pressed="false">
+          <strong>Já possuo CSV</strong>
+          <span>Importe um CSV de discursos (texto original, com acentos) e analise.</span>
+        </button>
+        <a class="entry" href="/dashboard">
+          <strong>Já possuo dashboard_data</strong>
+          <span>Abra um dashboard_data.json gerado antes, direto no dashboard.</span>
+        </a>
+      </div>
+
+      <!-- CRIAR DO ZERO -->
+      <section id="panel-scrape" class="card" hidden>
+        <div class="card-title">Nova coleta</div>
+        <form id="form-scrape">
+          <div class="field">
+            <label for="keywords">
+              Keywords
+              <span class="help" tabindex="0">?<span class="tip" role="tooltip">
+                Uma por linha. O SitaQWeb busca no texto completo de cada discurso, e um discurso entra se
+                tiver qualquer uma delas. Termos com mais de uma palavra são buscados como frase exata.
+                Acentos não fazem diferença na busca.
+              </span></span>
+            </label>
+            <textarea id="keywords" required placeholder="feminicídio&#10;violência doméstica&#10;Lei Maria da Penha"></textarea>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label for="data-inicio">Data inicial</label>
+              <input type="date" id="data-inicio" required value="2023-01-01" />
+            </div>
+            <div class="field">
+              <label for="data-fim">Data final</label>
+              <input type="date" id="data-fim" required />
+            </div>
+          </div>
+          <div class="field">
+            <span class="label">Base de busca</span>
+            <div class="radio-group">
+              <label class="inline"><input type="radio" name="base" value="plenario" checked /> Plenário</label>
+              <label class="inline"><input type="radio" name="base" value="comissoes" /> Comissões</label>
+            </div>
+          </div>
+          <div class="field">
+            <label for="scrape-name">Nome (opcional)</label>
+            <input type="text" id="scrape-name" placeholder="Gerado a partir das keywords e do período" />
+          </div>
+          <button class="btn" type="submit">Iniciar coleta</button>
+          <div id="scrape-error" class="msg error" hidden></div>
+        </form>
+      </section>
+
+      <!-- IMPORTAR CSV -->
+      <section id="panel-import" class="card" hidden>
+        <div class="card-title">Importar CSV</div>
+        <form id="form-import">
+          <div class="field">
+            <label for="csv-file">Arquivo CSV</label>
+            <input type="file" id="csv-file" accept=".csv,text/csv" required />
+            <p class="hint">
+              Colunas: Data, Sessao, Orador, Partido, Estado, Fase, Hora, Discurso. Codificação UTF-8. O texto
+              precisa estar com acentos; CSVs do scraper antigo (sem acentos) são recusados.
+            </p>
+          </div>
+          <div class="field">
+            <label for="import-name">Nome (opcional)</label>
+            <input type="text" id="import-name" placeholder="Nome do arquivo" />
+          </div>
+          <button class="btn" type="submit">Importar</button>
+          <div id="import-error" class="msg error" hidden></div>
+        </form>
+      </section>
+
+      <!-- PROGRESSO DA COLETA -->
+      <section id="panel-dataset" class="card" hidden aria-live="polite">
+        <div class="card-title">Coleta</div>
+        <div class="status-line">
+          <strong id="ds-name"></strong>
+          <span id="ds-status"></span>
+        </div>
+        <div class="progress" id="ds-bar"><div></div></div>
+        <div class="status-line">
+          <span id="ds-counts"></span>
+          <span id="ds-pct"></span>
+        </div>
+        <div id="ds-msg" class="msg warn" hidden></div>
+        <div class="actions">
+          <button class="btn secondary" id="ds-resume" hidden>Retomar coleta</button>
+          <a class="btn secondary" id="ds-csv" hidden>Baixar CSV</a>
+          <button class="btn" id="ds-analyze" hidden>Configurar análise →</button>
+        </div>
+      </section>
+
+      <!-- CONFIGURAÇÃO DA ANÁLISE -->
+      <section id="panel-config" class="card" hidden>
+        <div class="card-title">Análise de tópicos</div>
+        <p class="hint" style="margin: -0.4rem 0 1rem">Dataset: <strong id="cfg-dataset"></strong></p>
+        <form id="form-run">
+          <div class="row">
+            <div class="field">
+              <label for="nr-topics">
+                Número de tópicos
+                <span class="help" tabindex="0">?<span class="tip" role="tooltip">
+                  O HDBSCAN encontra os tópicos sozinho, em geral dezenas, muitos parecidos entre si. Este número
+                  pede ao BERTopic que una os mais parecidos até sobrarem no máximo esse tanto. Se ele achar menos,
+                  mantém os que achou. Mudar este valor não recalcula os embeddings.
+                </span></span>
+              </label>
+              <input type="number" id="nr-topics" min="2" max="200" value="20" />
+              <label class="inline" style="margin-top: 0.4rem">
+                <input type="checkbox" id="no-reduce" /> Sem redução (todos os tópicos do HDBSCAN)
+              </label>
+            </div>
+            <div class="field">
+              <label for="embedding-model">
+                Modelo de embedding
+                <span class="help" tabindex="0">?<span class="tip" role="tooltip">
+                  Converte cada discurso em um vetor de números que representa o sentido do texto: discursos
+                  parecidos ficam com vetores próximos. É a etapa mais lenta. Os vetores ficam guardados, então só
+                  são calculados de novo se você trocar de modelo.
+                </span></span>
+              </label>
+              <select id="embedding-model"></select>
+              <p class="hint" id="model-desc"></p>
+            </div>
+          </div>
+          <div class="field">
+            <label for="threshold">
+              Threshold do multi-label: <span id="threshold-val" class="num"></span>
+              <span class="help" tabindex="0">?<span class="tip" role="tooltip">
+                Cada discurso tem um tópico principal. Com o multi-label, ele também recebe os outros tópicos cuja
+                probabilidade passe deste valor. Mais baixo = mais tópicos por discurso. Afeta a coluna
+                Topicos_multi do CSV processado.
+              </span></span>
+            </label>
+            <input type="range" id="threshold" min="0" max="0.5" step="0.05" />
+          </div>
+          <button class="btn" type="submit" id="run-submit">Rodar análise</button>
+          <div id="run-error" class="msg error" hidden></div>
+        </form>
+
+        <details id="doc-panel">
+          <summary>Documentação dos parâmetros (tabela para o paper)</summary>
+          <p class="hint" style="margin-top: 0.5rem">
+            Todos os parâmetros usados, com os valores escolhidos acima. Os que não aparecem no formulário são fixos.
+          </p>
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr><th>Etapa</th><th>Parâmetro</th><th>Valor</th><th>Descrição</th></tr></thead>
+              <tbody id="doc-body"></tbody>
+            </table>
+          </div>
+          <div class="actions"><button class="btn secondary small" id="doc-export">Exportar CSV</button></div>
+        </details>
+      </section>
+
+      <!-- PROGRESSO DA ANÁLISE -->
+      <section id="panel-run" class="card" hidden aria-live="polite">
+        <div class="card-title">Análise</div>
+        <div class="status-line">
+          <strong id="run-name"></strong>
+          <span id="run-status"></span>
+        </div>
+        <div class="progress" id="run-bar"><div></div></div>
+        <ol class="stages" id="run-stages"></ol>
+        <div id="run-msg" class="msg" hidden></div>
+        <div class="actions" id="run-actions" hidden></div>
+      </section>
+
+      <!-- HISTÓRICO -->
+      <h2>Coletas e importações</h2>
+      <div class="card tbl-wrap">
+        <table>
+          <thead><tr><th>Nome</th><th>Origem</th><th>Status</th><th class="num">Discursos</th><th></th></tr></thead>
+          <tbody id="datasets-body"></tbody>
+        </table>
+        <p class="empty" id="datasets-empty" hidden>Nenhuma coleta ainda.</p>
+      </div>
+
+      <h2>Análises</h2>
+      <div class="card tbl-wrap">
+        <table>
+          <thead><tr><th>Dataset</th><th>Parâmetros</th><th>Status</th><th class="num">Tópicos</th><th></th></tr></thead>
+          <tbody id="runs-body"></tbody>
+        </table>
+        <p class="empty" id="runs-empty" hidden>Nenhuma análise ainda.</p>
+      </div>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const STATUS = {
+        pending: "aguardando",
+        running: "rodando",
+        done: "concluída",
+        interrupted: "interrompida",
+        failed: "falhou",
+      };
+      const STAGES = [
+        ["loading", "Carregando discursos e modelos"],
+        ["embeddings", "Embeddings (texto → vetores)"],
+        ["clustering", "Agrupamento em tópicos (UMAP + HDBSCAN + c-TF-IDF)"],
+        ["reduce", "Redução de tópicos"],
+        ["statistics", "Estatísticas"],
+      ];
+
+      let options = null;
+      let configDataset = null;
+      let dsSource = null;
+      let runSource = null;
+
+      async function api(path, init) {
+        const resp = await fetch(path, init);
+        const body = resp.headers.get("content-type")?.includes("json") ? await resp.json() : null;
+        if (!resp.ok) {
+          const detail = body?.detail;
+          const msg = Array.isArray(detail)
+            ? detail.map((d) => d.msg.replace(/^Value error, /, "")).join("; ")
+            : detail || `Erro ${resp.status}`;
+          throw new Error(msg);
+        }
+        return body;
+      }
+
+      function el(tag, attrs = {}, ...children) {
+        const node = document.createElement(tag);
+        for (const [k, v] of Object.entries(attrs)) {
+          if (k === "class") node.className = v;
+          else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+          else node.setAttribute(k, v);
+        }
+        node.append(...children.filter((c) => c != null));
+        return node;
+      }
+
+      function showError(id, err) {
+        $(id).textContent = err.message || String(err);
+        $(id).hidden = false;
+      }
+
+      function fmt(n) {
+        return n == null ? "—" : Number(n).toLocaleString("pt-BR");
+      }
+
+      function tag(status) {
+        return el("span", { class: `tag ${status}` }, STATUS[status] || status);
+      }
+
+      function paramsText(p) {
+        const model = p.embedding_model.includes("mpnet") ? "mpnet" : "MiniLM";
+        const nr = p.nr_topics == null ? "sem redução" : `${p.nr_topics} tópicos`;
+        return `${nr} · ${model} · threshold ${p.threshold}`;
+      }
+
+      function scrollTo(node) {
+        const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        node.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+      }
+
+      // ── entry points ──
+      document.querySelectorAll("button.entry").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          const which = btn.dataset.entry;
+          document.querySelectorAll("button.entry").forEach((b) =>
+            b.setAttribute("aria-pressed", String(b === btn)),
+          );
+          $("panel-scrape").hidden = which !== "scrape";
+          $("panel-import").hidden = which !== "import";
+          scrollTo($(`panel-${which}`));
+        }),
+      );
+      $("data-fim").value = new Date().toISOString().slice(0, 10);
+
+      // ── nova coleta ──
+      $("form-scrape").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        $("scrape-error").hidden = true;
+        const keywords = $("keywords").value.split("\n").map((k) => k.trim()).filter(Boolean);
+        try {
+          const ds = await api("/api/datasets/scrape", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              keywords,
+              data_inicio: $("data-inicio").value,
+              data_fim: $("data-fim").value,
+              base_pesq: document.querySelector('input[name="base"]:checked').value,
+              name: $("scrape-name").value.trim() || null,
+            }),
+          });
+          watchDataset(ds);
+          refreshLists();
+        } catch (err) {
+          showError("scrape-error", err);
+        }
+      });
+
+      // ── importar CSV ──
+      $("form-import").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        $("import-error").hidden = true;
+        const form = new FormData();
+        form.append("file", $("csv-file").files[0]);
+        if ($("import-name").value.trim()) form.append("name", $("import-name").value.trim());
+        const button = e.submitter;
+        button.disabled = true;
+        button.textContent = "Importando…";
+        try {
+          const ds = await api("/api/datasets/import", { method: "POST", body: form });
+          refreshLists();
+          openConfig(ds);
+        } catch (err) {
+          showError("import-error", err);
+        } finally {
+          button.disabled = false;
+          button.textContent = "Importar";
+        }
+      });
+
+      // ── progresso da coleta ──
+      function watchDataset(ds) {
+        dsSource?.close();
+        renderDataset(ds);
+        $("panel-dataset").hidden = false;
+        scrollTo($("panel-dataset"));
+        if (ds.running || ds.status === "pending" || ds.status === "running") {
+          dsSource = new EventSource(`/api/datasets/${ds.id}/events`);
+          dsSource.onmessage = (ev) => {
+            const d = JSON.parse(ev.data);
+            renderDataset(d);
+            if (!d.running && (d.status === "done" || d.status === "interrupted")) {
+              dsSource.close();
+              refreshLists();
+            }
+          };
+        }
+      }
+
+      function renderDataset(ds) {
+        const active = ds.running || ds.status === "pending";
+        $("ds-name").textContent = ds.name;
+        $("ds-status").replaceChildren(tag(active ? "running" : ds.status));
+        const total = ds.total_expected;
+        const pct = total ? Math.min(100, (ds.fetched / total) * 100) : null;
+        const bar = $("ds-bar");
+        bar.classList.toggle("indeterminate", active && pct == null);
+        bar.firstElementChild.style.width = pct == null ? "" : `${pct}%`;
+        $("ds-counts").textContent =
+          `${fmt(ds.fetched)} de ${total ? fmt(total) : "?"} discursos baixados` +
+          (ds.failed ? ` · ${fmt(ds.failed)} com falha` : "");
+        $("ds-pct").textContent = pct == null ? "" : `${pct.toFixed(0)}%`;
+        $("ds-msg").hidden = !ds.error;
+        $("ds-msg").textContent = ds.error || "";
+        $("ds-resume").hidden = !(ds.source === "sitaqweb" && ds.status === "interrupted" && !ds.running);
+        $("ds-resume").onclick = async () => {
+          try {
+            watchDataset(await api(`/api/datasets/${ds.id}/resume`, { method: "POST" }));
+          } catch (err) {
+            $("ds-msg").textContent = err.message;
+            $("ds-msg").hidden = false;
+          }
+        };
+        $("ds-csv").hidden = !ds.fetched;
+        $("ds-csv").href = `/api/datasets/${ds.id}/csv`;
+        $("ds-analyze").hidden = active || !ds.fetched;
+        $("ds-analyze").onclick = () => openConfig(ds);
+      }
+
+      // ── configuração da análise ──
+      async function loadOptions() {
+        options = await api("/api/options");
+        const select = $("embedding-model");
+        select.replaceChildren(
+          ...options.embedding_models.map((m) => el("option", { value: m.id }, m.id)),
+        );
+        select.value = options.defaults.embedding_model;
+        $("nr-topics").value = options.defaults.nr_topics;
+        $("threshold").value = options.defaults.threshold;
+        syncForm();
+      }
+
+      function formParams() {
+        return {
+          embedding_model: $("embedding-model").value,
+          nr_topics: $("no-reduce").checked ? null : Number($("nr-topics").value),
+          threshold: Number($("threshold").value),
+        };
+      }
+
+      function syncForm() {
+        $("nr-topics").disabled = $("no-reduce").checked;
+        $("threshold-val").textContent = Number($("threshold").value).toFixed(2);
+        const model = options?.embedding_models.find((m) => m.id === $("embedding-model").value);
+        $("model-desc").textContent = model?.descricao || "";
+        if ($("doc-panel").open) loadDocs();
+      }
+      ["nr-topics", "no-reduce", "embedding-model", "threshold"].forEach((id) =>
+        $(id).addEventListener("input", syncForm),
+      );
+      $("doc-panel").addEventListener("toggle", () => $("doc-panel").open && loadDocs());
+
+      let docRows = [];
+      async function loadDocs() {
+        const p = formParams();
+        const q = new URLSearchParams({ embedding_model: p.embedding_model, threshold: p.threshold });
+        if (p.nr_topics == null) q.set("sem_reducao", "true");
+        else q.set("nr_topics", p.nr_topics);
+        docRows = await api(`/api/methodology?${q}`);
+        $("doc-body").replaceChildren(
+          ...docRows.map((r) =>
+            el("tr", {}, el("td", {}, r.etapa), el("td", {}, r.parametro), el("td", { class: "num" }, r.valor),
+              el("td", {}, r.descricao)),
+          ),
+        );
+      }
+
+      $("doc-export").addEventListener("click", () => {
+        const esc = (v) => `"${String(v).replaceAll('"', '""')}"`;
+        const lines = [["Etapa", "Parâmetro", "Valor", "Descrição"], ...docRows.map((r) => [r.etapa, r.parametro, r.valor, r.descricao])];
+        const blob = new Blob(["﻿" + lines.map((l) => l.map(esc).join(",")).join("\n")], { type: "text/csv" });
+        const a = el("a", { href: URL.createObjectURL(blob), download: "metodologia.csv" });
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+
+      function openConfig(ds) {
+        configDataset = ds;
+        $("cfg-dataset").textContent = `${ds.name} (${fmt(ds.fetched)} discursos)`;
+        $("run-error").hidden = true;
+        if (ds.fetched < options.min_docs) {
+          showError("run-error", new Error(
+            `Este dataset tem ${ds.fetched} discursos; a análise precisa de ao menos ${options.min_docs}.`));
+        }
+        $("panel-config").hidden = false;
+        scrollTo($("panel-config"));
+      }
+
+      $("form-run").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        $("run-error").hidden = true;
+        try {
+          const run = await api("/api/runs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dataset_id: configDataset.id, ...formParams() }),
+          });
+          watchRun(run);
+          refreshLists();
+        } catch (err) {
+          showError("run-error", err);
+        }
+      });
+
+      // ── progresso da análise ──
+      function watchRun(run) {
+        runSource?.close();
+        renderRun(run);
+        $("panel-run").hidden = false;
+        scrollTo($("panel-run"));
+        if (run.status === "pending" || run.status === "running") {
+          runSource = new EventSource(`/api/runs/${run.id}/events`);
+          runSource.onmessage = (ev) => {
+            const r = JSON.parse(ev.data);
+            renderRun(r);
+            if (r.status === "done" || r.status === "failed") {
+              runSource.close();
+              refreshLists();
+            }
+          };
+        }
+      }
+
+      function renderRun(run) {
+        $("run-name").textContent = `${run.dataset_name} — ${paramsText(run.params)}`;
+        $("run-status").replaceChildren(tag(run.status));
+        const bar = $("run-bar");
+        const active = run.status === "pending" || run.status === "running";
+        bar.classList.toggle("indeterminate", active && !run.progress);
+        bar.firstElementChild.style.width = run.progress ? `${run.progress * 100}%` : "";
+
+        const current = run.status === "done" ? STAGES.length : STAGES.findIndex(([k]) => k === (run.stage || "loading"));
+        $("run-stages").replaceChildren(
+          ...STAGES.map(([, label], i) => {
+            const state = i < current ? "done" : i === current && active ? "current" : "";
+            return el("li", { class: state }, label);
+          }),
+        );
+
+        const msg = $("run-msg");
+        msg.hidden = run.status !== "done" && run.status !== "failed";
+        msg.className = run.status === "failed" ? "msg error" : "msg";
+        if (run.status === "failed") msg.textContent = run.error;
+        if (run.status === "done" && run.summary) {
+          const s = run.summary;
+          msg.textContent = `${fmt(s.n_topicos)} tópicos em ${fmt(s.n_discursos)} discursos; ${s.pct_ruido}% ficaram como ruído (sem tópico).`;
+        }
+
+        const actions = $("run-actions");
+        actions.hidden = run.status !== "done";
+        if (run.status === "done") actions.replaceChildren(...runLinks(run, false));
+      }
+
+      function runLinks(run, small) {
+        const cls = small ? "btn secondary small" : "btn secondary";
+        return [
+          el("a", { class: small ? "btn small" : "btn", href: `/dashboard?run=${run.id}` }, "Abrir dashboard"),
+          el("a", { class: cls, href: `/api/runs/${run.id}/dashboard.html` }, "Dashboard (HTML)"),
+          el("a", { class: cls, href: `/api/runs/${run.id}/dashboard_data.json` }, "JSON"),
+          el("a", { class: cls, href: `/api/runs/${run.id}/discursos_processados.csv` }, "CSV processado"),
+        ];
+      }
+
+      // ── histórico ──
+      async function refreshLists() {
+        const [datasets, runs] = await Promise.all([api("/api/datasets"), api("/api/runs")]);
+
+        $("datasets-empty").hidden = datasets.length > 0;
+        $("datasets-body").replaceChildren(
+          ...datasets.map((ds) => {
+            const active = ds.running || ds.status === "pending";
+            const buttons = [
+              el("button", { class: "btn secondary small", onclick: () => watchDataset(ds) }, "Ver"),
+            ];
+            if (!active && ds.fetched)
+              buttons.push(el("button", { class: "btn small", onclick: () => openConfig(ds) }, "Analisar"));
+            return el("tr", {},
+              el("td", {}, ds.name),
+              el("td", {}, ds.source === "csv" ? "CSV" : "SitaQWeb"),
+              el("td", {}, tag(active ? "running" : ds.status)),
+              el("td", { class: "num" }, fmt(ds.fetched)),
+              el("td", {}, el("div", { class: "actions" }, ...buttons)),
+            );
+          }),
+        );
+
+        $("runs-empty").hidden = runs.length > 0;
+        $("runs-body").replaceChildren(
+          ...runs.map((run) =>
+            el("tr", {},
+              el("td", {}, run.dataset_name),
+              el("td", {}, paramsText(run.params)),
+              el("td", {}, tag(run.status)),
+              el("td", { class: "num" }, fmt(run.summary?.n_topicos)),
+              el("td", {}, el("div", { class: "actions" },
+                ...(run.status === "done"
+                  ? runLinks(run, true).slice(0, 2)
+                  : [el("button", { class: "btn secondary small", onclick: () => watchRun(run) }, "Ver")]))),
+            ),
+          ),
+        );
+
+        // reattach to work that is still running (e.g. after reloading the page)
+        const runningDs = datasets.find((d) => d.running);
+        if (runningDs && !dsSource) watchDataset(runningDs);
+        const runningRun = runs.find((r) => r.status === "pending" || r.status === "running");
+        if (runningRun && !runSource) watchRun(runningRun);
+      }
+
+      loadOptions().then(refreshLists);
+    </script>
+  </body>
+</html>
