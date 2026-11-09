@@ -1,29 +1,35 @@
 """
-Análises estatísticas: Mann-Kendall, Pearson, cosseno, CV, e análises por tópico.
+Análises estatísticas: tendências (Mann-Kendall), Pearson, cosseno, CV, e análises por tópico.
 """
+
+from collections import Counter
+from datetime import date
 
 import numpy as np
 import pandas as pd
-import pymannkendall as mk
-from collections import Counter
 from scipy.spatial.distance import cosine
 from scipy.stats import pearsonr
 
 from .config import STOPWORDS_DOMAIN
+from .trends import MIN_YEARS_ANNUAL, complete_years, compute_trends
 
 
 def compute_all_statistics(
     df: pd.DataFrame,
     topics: np.ndarray | None = None,
     topic_labels: dict[int, str] | None = None,
+    period: tuple[date, date] | None = None,
+    plenary_totals: dict[str, int | None] | None = None,
 ) -> dict:
     """
     Calcula todas as análises estatísticas.
 
     Args:
-        df: DataFrame com colunas Ano, Espectro, Partido, Regiao, Discurso.
+        df: DataFrame com colunas Data_dt, Ano, Espectro, Partido, Regiao, Discurso.
         topics: Array de tópico dominante por documento (mesmo índice que df).
         topic_labels: Mapeamento topic_id → label.
+        period: período coletado; None = da primeira à última data dos discursos.
+        plenary_totals: {'YYYY-MM': total do Plenário} para as tendências em proporção.
 
     Returns:
         dict com todas as análises prontas pra exportação.
@@ -38,21 +44,12 @@ def compute_all_statistics(
     evo_ano = df.groupby('Ano').size().reset_index(name='Total')
     stats['evolucao_temporal'] = evo_ano.to_dict('records')
 
-    # ── Mann-Kendall geral ──
-    total_por_ano = df.groupby('Ano').size().reindex(year_range, fill_value=0)
-    stats['mann_kendall_geral'] = _mann_kendall(total_por_ano.values)
-
-    # ── Mann-Kendall por espectro ──
-    mk_por_espectro = []
+    # ── Tendências (Mann-Kendall anual e sazonal, contagem e proporção) ──
+    inicio, fim = period or (df['Data_dt'].min().date(), df['Data_dt'].max().date())
+    if topics is not None:
+        df = df.assign(Topico=topics)
+    stats['tendencias'] = compute_trends(df, inicio, fim, plenary_totals, topic_labels)
     espectros = ['Esquerda', 'Centro', 'Direita']
-    for esp in espectros:
-        serie = (
-            df[df['Espectro'] == esp]
-            .groupby('Ano').size()
-            .reindex(year_range, fill_value=0)
-        )
-        mk_por_espectro.append({'espectro': esp, **_mann_kendall(serie.values)})
-    stats['mann_kendall_por_espectro'] = mk_por_espectro
 
     # ── Proporção por espectro ao longo do tempo ──
     evo_esp = df.groupby(['Ano', 'Espectro']).size().unstack(fill_value=0)
@@ -70,11 +67,11 @@ def compute_all_statistics(
         .to_dict('records')
     )
 
-    # ── Correlação de Pearson entre espectros ──
+    # ── Correlação de Pearson entre espectros (anos completos) ──
     pearson_results = []
-    cols = [c for c in espectros if c in evo_esp.columns]
-    if len(evo_esp) < MIN_YEARS:
-        cols = []
+    years = complete_years(inicio, fim)
+    evo_esp = evo_esp.reindex(years, fill_value=0)
+    cols = [c for c in espectros if c in evo_esp.columns] if len(years) >= MIN_YEARS_ANNUAL else []
     for i, e1 in enumerate(cols):
         for e2 in cols[i+1:]:
             r, p = pearsonr(evo_esp[e1], evo_esp[e2])
@@ -157,17 +154,6 @@ def compute_all_statistics(
     return stats
 
 
-MIN_YEARS = 4
-
-
-def _mann_kendall(values) -> dict:
-    """Teste de Mann-Kendall; com menos de MIN_YEARS anos não há como medir tendência."""
-    if len(values) < MIN_YEARS:
-        return {'tendencia': 'dados insuficientes', 'p': None, 'tau': None}
-    r = mk.original_test(values)
-    return {'tendencia': r.trend, 'p': round(r.p, 4), 'tau': round(r.Tau, 4)}
-
-
 def _top_words(texts: pd.Series, n: int = 25) -> list[dict]:
     """Top N palavras de uma série de textos, excluindo stopwords de domínio."""
     import re
@@ -238,15 +224,6 @@ def _topic_statistics(
         for ano, count in serie.items():
             t_evo.append({'topico': label, 'ano': int(ano), 'count': int(count)})
     stats['topicos_evolucao_temporal'] = t_evo
-
-    # Tendência de cada tópico (Mann-Kendall sobre a contagem anual)
-    mk_topicos = []
-    for tid, label in topic_labels.items():
-        if tid == -1:
-            continue
-        serie = valid[valid['Topico'] == tid].groupby('Ano').size().reindex(year_range, fill_value=0)
-        mk_topicos.append({'topico': label, 'total': int(serie.sum()), **_mann_kendall(serie.values)})
-    stats['mann_kendall_por_topico'] = sorted(mk_topicos, key=lambda x: -x['total'])
 
     # Perfil de tópicos dos 15 partidos com mais discursos (% dos discursos do partido)
     top_topicos = valid['Topico_label'].value_counts().head(8).index.tolist()

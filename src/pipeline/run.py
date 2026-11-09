@@ -15,6 +15,7 @@ Opções:
 """
 
 import argparse
+from datetime import date
 from pathlib import Path
 
 import nltk
@@ -36,6 +37,8 @@ def analyze(
     config: TopicModelConfig,
     embeddings: np.ndarray | None = None,
     progress_callback=None,
+    period: tuple[date, date] | None = None,
+    plenary_totals: dict[str, int | None] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """
     Classificação ideológica/regional → tópicos → estatísticas.
@@ -45,6 +48,8 @@ def analyze(
         config: parâmetros do topic modeling.
         embeddings: embeddings na mesma ordem de df (None = calcula).
         progress_callback: Callable(stage: str, pct: float).
+        period: período coletado (meses sem discursos contam como zero nas tendências).
+        plenary_totals: {'YYYY-MM': total do Plenário}; None = tendências só em contagem.
 
     Returns:
         (df com colunas de tópico, dict de estatísticas para o dashboard)
@@ -63,7 +68,9 @@ def analyze(
     df['Topicos_multi'] = ['; '.join(labels) for labels in results['multi_labels']]
 
     _cb('statistics', 0.0)
-    stats = compute_all_statistics(df, topics=topics, topic_labels=topic_labels)
+    stats = compute_all_statistics(
+        df, topics=topics, topic_labels=topic_labels, period=period, plenary_totals=plenary_totals,
+    )
 
     n_noise = int((topics == -1).sum())
     stats['modelo'] = {
@@ -105,10 +112,14 @@ def run_pipeline(
     for label, count in df[df['Topico'] != -1]['Topico_label'].value_counts().head(10).items():
         print(f"  {label}: {count} discursos")
 
-    mk = stats['mann_kendall_geral']
-    print(f"\nMann-Kendall geral: {mk['tendencia']} (p={mk['p']}, τ={mk['tau']})")
-    for item in stats['mann_kendall_por_espectro']:
-        print(f"  {item['espectro']}: {item['tendencia']} (p={item['p']}, τ={item['tau']})")
+    print("\nTendências (contagem; a linha de comando não busca os totais do Plenário para a proporção):")
+    for serie in stats['tendencias']['series']:
+        if serie['grupo'] == 'topico':
+            continue
+        for teste in ('anual', 'sazonal'):
+            r = serie['contagem'][teste]
+            texto = f"{r['tendencia']} (p={r['p']}, τ={r['tau']})" if r else 'dados insuficientes'
+            print(f"  {serie['nome']} — {teste}: {texto}")
 
     export_dashboard_json(stats, output_path / 'dashboard_data.json')
     export_processed_csv(df, output_path / 'discursos_processados.csv')

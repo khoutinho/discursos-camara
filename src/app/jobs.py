@@ -7,6 +7,7 @@ discursos ainda sem texto são baixados (lento).
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date, timedelta
 
 from ..scraper import sitaqweb
 from . import db
@@ -39,7 +40,7 @@ def _run_scrape(dataset_id: int) -> None:
 
         with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
             for _page, total, rows in sitaqweb.iter_listing(
-                ds["keywords"], _to_br_date(ds["data_inicio"]), _to_br_date(ds["data_fim"]), ds["base_pesq"],
+                ds["keywords"], _to_br_date(ds["data_inicio"]), _to_br_date(ds["data_fim"]),
             ):
                 db.set_total(conn, dataset_id, total)
                 _fetch(conn, pool, db.add_listing_rows(conn, dataset_id, rows))
@@ -73,8 +74,13 @@ def _fetch(conn, pool: ThreadPoolExecutor, pending: list[tuple[int, str]]) -> No
 
 MIN_DOCS = 50
 
-# overall progress (0–1) at the start of each stage; embeddings fill 0.05→0.75
-STAGE_PROGRESS = {"loading": 0.0, "embeddings": 0.05, "clustering": 0.75, "reduce": 0.88, "statistics": 0.93}
+# overall progress (0–1) at the start of each stage; totals fill 0.02→0.1, embeddings 0.1→0.75
+STAGE_PROGRESS = {
+    "loading": 0.0, "totals": 0.02, "embeddings": 0.1, "clustering": 0.75, "reduce": 0.88, "statistics": 0.93,
+}
+
+# transcripts are published with a delay; a month's total only counts as final this long after it ends
+TOTALS_SETTLE_DAYS = 90
 
 _pipeline_lock = threading.Lock()
 
@@ -113,6 +119,13 @@ def _run_pipeline(run_id: int) -> None:
                 "para encontrar tópicos. Amplie o período ou as keywords."
             )
 
+        ds = db.get_dataset(conn, run["dataset_id"])
+        if ds["data_inicio"]:
+            period = (date.fromisoformat(ds["data_inicio"]), date.fromisoformat(ds["data_fim"]))
+        else:  # imported CSV: the period is what the file covers
+            period = (df["Data_dt"].min().date(), df["Data_dt"].max().date())
+        plenary_totals = _plenary_totals(conn, run_id, *period)
+
         embeddings = _embeddings_for(conn, run_id, df, params["embedding_model"])
 
         config = TopicModelConfig(
@@ -120,9 +133,11 @@ def _run_pipeline(run_id: int) -> None:
             nr_topics=params["nr_topics"],
             multi_label_threshold=params["threshold"],
         )
-        df, stats = analyze(df, config, embeddings=embeddings, progress_callback=lambda s, _p: stage(s))
+        df, stats = analyze(
+            df, config, embeddings=embeddings, progress_callback=lambda s, _p: stage(s),
+            period=period, plenary_totals=plenary_totals,
+        )
 
-        ds = db.get_dataset(conn, run["dataset_id"])
         stats["info"] = {
             "run_id": run_id,
             "dataset": ds["name"],
@@ -156,6 +171,47 @@ def _stage_reporter(conn, run_id: int):
         db.update_run(conn, run_id, stage=stage,
                       progress=progress if progress is not None else STAGE_PROGRESS.get(stage))
     return report
+
+
+def _plenary_totals(conn, run_id: int, inicio: date, fim: date) -> dict[str, int | None]:
+    """
+    Total de discursos do Plenário em cada mês do período, para as tendências em proporção.
+
+    Meses inteiros vêm do cache quando já estão consolidados; meses recentes são consultados de
+    novo. Meses pela metade (pontas do período) são consultados no trecho exato e não vão pro cache.
+    Um mês que falhar fica None e é buscado de novo na próxima análise.
+    """
+    today = date.today()
+    cache = db.cached_month_totals(conn)
+    totals: dict[str, int | None] = {}
+    to_fetch: list[tuple[str, date, date, bool]] = []  # (month, start, end, cacheable)
+
+    month_start = inicio.replace(day=1)
+    while month_start <= fim:
+        month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+        key = month_start.strftime("%Y-%m")
+        start, end = max(month_start, inicio), min(month_end, fim)
+        whole = start == month_start and end == month_end
+        cached = cache.get(key)
+        if whole and cached and date.fromisoformat(cached[1]) >= month_end + timedelta(days=TOTALS_SETTLE_DAYS):
+            totals[key] = cached[0]
+        else:
+            to_fetch.append((key, start, end, whole))
+        month_start = month_end + timedelta(days=1)
+
+    start_p, end_p = STAGE_PROGRESS["totals"], STAGE_PROGRESS["embeddings"]
+    db.update_run(conn, run_id, stage="totals", progress=start_p)
+    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
+        results = pool.map(
+            lambda m: sitaqweb.count_speeches(m[1].strftime("%d/%m/%Y"), m[2].strftime("%d/%m/%Y")), to_fetch,
+        )
+        for i, ((key, _start, _end, whole), total) in enumerate(zip(to_fetch, results), start=1):
+            totals[key] = total
+            if total is not None and whole:
+                db.save_month_total(conn, key, total)
+            if i % 12 == 0 or i == len(to_fetch):
+                db.update_run(conn, run_id, progress=start_p + (end_p - start_p) * i / len(to_fetch))
+    return totals
 
 
 def _embeddings_for(conn, run_id: int, df, model: str):

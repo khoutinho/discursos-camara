@@ -42,20 +42,18 @@ def scrape(
     keywords: list[str],
     data_inicio: str = "01/01/2000",
     data_fim: str = "31/12/2025",
-    base_pesq: str = "plenario",
     page_size: int = 50,
     delay: float = 0.2,
     max_pages: int | None = None,
     progress_callback=None,
 ) -> list[dict]:
     """
-    Raspa discursos do SitaQWeb por keywords, de uma vez só (sem persistência).
+    Raspa discursos do Plenário no SitaQWeb por keywords, de uma vez só (sem persistência).
 
     Args:
         keywords: Lista de termos de busca (ex: ["feminicídio", "violência doméstica"])
         data_inicio: Data inicial DD/MM/YYYY
         data_fim: Data final DD/MM/YYYY
-        base_pesq: "plenario" ou "comissoes"
         page_size: Resultados por página (max 50)
         delay: Delay entre requisições (segundos)
         max_pages: Limite de páginas (None = todas)
@@ -68,7 +66,7 @@ def scrape(
     results = []
     try:
         for page, _total, rows in iter_listing(
-            keywords, data_inicio, data_fim, base_pesq, page_size, max_pages,
+            keywords, data_inicio, data_fim, page_size, max_pages,
         ):
             for row in rows:
                 url = row.pop("url")
@@ -86,12 +84,11 @@ def iter_listing(
     keywords: list[str],
     data_inicio: str,
     data_fim: str,
-    base_pesq: str = "plenario",
     page_size: int = 50,
     max_pages: int | None = None,
 ) -> Iterator[tuple[int, int | None, list[dict]]]:
     """
-    Percorre as páginas de resultados.
+    Percorre as páginas de resultados do Plenário.
 
     Yields:
         (página, total de discursos encontrados, linhas da página). Cada linha tem
@@ -107,10 +104,10 @@ def iter_listing(
         "txUF": "",
         "dtInicio": data_inicio,
         "dtFim": data_fim,
-        # the legacy search engine misses matches when terms carry UTF-8 accents
-        "txTexto": " OR ".join(f'"{_strip_accents(kw)}"' for kw in keywords),
+        "txTexto": _search_expression(keywords),
         "txSumario": "",
-        "basePesq": base_pesq,
+        # committee results ("comissao") have no speaker/party columns, which the analysis needs
+        "basePesq": "plenario",
         "CampoOrdenacao": "dtSessao",
         "TipoOrdenacao": "DESC",
         "PageSize": page_size,
@@ -137,6 +134,32 @@ def iter_listing(
         if not soup.find("a", string=lambda t: t and "Próxima" in t):
             return
         page += 1
+
+
+def count_speeches(data_inicio: str, data_fim: str) -> int | None:
+    """
+    Total de discursos do Plenário no período (todos os temas), lido do contador da busca.
+
+    Args:
+        data_inicio, data_fim: DD/MM/YYYY
+
+    Returns:
+        O total, 0 se não houver discursos, ou None se o servidor não responder.
+    """
+    params = {
+        "CurrentPage": 1, "txOrador": "", "txPartido": "", "txUF": "",
+        "dtInicio": data_inicio, "dtFim": data_fim, "txTexto": "", "txSumario": "",
+        "basePesq": "plenario", "CampoOrdenacao": "dtSessao", "TipoOrdenacao": "DESC",
+        "PageSize": 1,  # only the counter is needed
+    }
+    resp = _get(BASE_URL, params=params, timeout=60)
+    if resp is None:
+        return None
+    soup = BeautifulSoup(resp.text, "html.parser")
+    total = _parse_total(soup)
+    if total is not None:
+        return total
+    return 0 if "Nenhum discurso encontrado" in soup.get_text(" ") else None
 
 
 def fetch_speech(url: str) -> str | None:
@@ -168,6 +191,21 @@ def _get(url: str, params: dict | None = None, timeout: int = 30) -> requests.Re
             return None
         print(f"[sitaqweb] {problem} após {elapsed:.0f}s, tentativa {attempt}: nova tentativa em {wait}s")
         time.sleep(wait)
+
+
+def _search_expression(keywords: list[str]) -> str:
+    """
+    Cada keyword com e sem acento, unidas por OR.
+
+    O índice do SitaQWeb mudou no fim de 2022: discursos anteriores só são encontrados pela
+    forma acentuada ("feminicídio") e os posteriores só pela forma sem acento ("feminicidio").
+    """
+    terms = []
+    for kw in keywords:
+        for form in (kw, _strip_accents(kw)):
+            if form not in terms:
+                terms.append(form)
+    return " OR ".join(f'"{t}"' for t in terms)
 
 
 def _strip_accents(text: str) -> str:

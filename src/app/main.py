@@ -8,6 +8,7 @@ import asyncio
 import io
 import json
 import re
+import shutil
 from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
@@ -41,7 +42,6 @@ class ScrapeRequest(BaseModel):
     keywords: list[str] = Field(min_length=1, examples=[["feminicídio"]])
     data_inicio: date = Field(examples=["2023-01-01"])
     data_fim: date = Field(examples=["2023-12-31"])
-    base_pesq: str = Field(default="plenario", pattern="^(plenario|comissoes)$")
     name: str | None = None
 
     @field_validator("keywords")
@@ -74,7 +74,7 @@ def create_scrape(req: ScrapeRequest):
     conn = db.connect()
     try:
         dataset_id = db.create_scrape_dataset(
-            conn, name, req.keywords, req.data_inicio.isoformat(), req.data_fim.isoformat(), req.base_pesq,
+            conn, name, req.keywords, req.data_inicio.isoformat(), req.data_fim.isoformat(),
         )
         jobs.start_scrape(dataset_id)
         return _with_running(db.get_dataset(conn, dataset_id))
@@ -103,6 +103,21 @@ def resume_scrape(dataset_id: int):
         if not jobs.start_scrape(dataset_id):
             raise HTTPException(409, "Coleta já está rodando")
         return _with_running(db.get_dataset(conn, dataset_id))
+    finally:
+        conn.close()
+
+
+@app.delete("/api/datasets/{dataset_id}", status_code=204)
+def delete_dataset(dataset_id: int):
+    conn = db.connect()
+    try:
+        _require(conn, dataset_id)
+        if jobs.is_running(dataset_id):
+            raise HTTPException(409, "A coleta ainda está rodando; aguarde ela terminar para excluir")
+        if any(r["dataset_id"] == dataset_id and r["status"] in ("pending", "running") for r in db.list_runs(conn)):
+            raise HTTPException(409, "Há uma análise deste dataset rodando; aguarde ela terminar para excluir")
+        for run_id in db.delete_dataset(conn, dataset_id):
+            shutil.rmtree(db.run_dir(run_id), ignore_errors=True)
     finally:
         conn.close()
 
@@ -261,6 +276,19 @@ def get_run(run_id: int):
     conn = db.connect()
     try:
         return _require_run(conn, run_id)
+    finally:
+        conn.close()
+
+
+@app.delete("/api/runs/{run_id}", status_code=204)
+def delete_run(run_id: int):
+    conn = db.connect()
+    try:
+        run = _require_run(conn, run_id)
+        if run["status"] in ("pending", "running"):
+            raise HTTPException(409, "A análise ainda está rodando; aguarde ela terminar para excluir")
+        db.delete_run(conn, run_id)
+        shutil.rmtree(db.run_dir(run_id), ignore_errors=True)
     finally:
         conn.close()
 

@@ -111,8 +111,32 @@
         outline-offset: 2px;
       }
       input[type="range"] { width: 100%; accent-color: var(--accent); }
+      .date-field { position: relative; display: flex; gap: 0.4rem; }
+      .date-field input[type="text"] { font-family: "IBM Plex Mono", monospace; font-size: 0.85rem; }
+      .date-field input[aria-invalid="true"] { border-color: var(--error); }
+      .date-btn {
+        flex: none;
+        width: 2.4rem;
+        background: var(--bg) center / 16px no-repeat
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a93ad' stroke-width='2' stroke-linecap='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E");
+        border: 1px solid var(--border2);
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .date-btn:hover { border-color: var(--accent); }
+      /* kept rendered (not display:none) so showPicker() can open it below the field */
+      .date-native {
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        height: 1px;
+        opacity: 0;
+        pointer-events: none;
+        border: 0;
+        padding: 0;
+      }
       .inline { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; }
-      .radio-group { display: flex; gap: 1.2rem; }
 
       button.btn, a.btn {
         display: inline-flex;
@@ -126,6 +150,7 @@
         font: 600 0.82rem "IBM Plex Sans", sans-serif;
         cursor: pointer;
         text-decoration: none;
+        white-space: nowrap;
       }
       button.btn:disabled { opacity: 0.45; cursor: not-allowed; }
       .btn.secondary {
@@ -221,8 +246,23 @@
         white-space: nowrap;
       }
       td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
-      td.num { font-family: "IBM Plex Mono", monospace; text-align: right; white-space: nowrap; }
-      td .actions { margin: 0; gap: 0.3rem; flex-wrap: nowrap; }
+      td.num { font-family: "IBM Plex Mono", monospace; white-space: nowrap; }
+      .btn-trash {
+        flex: none;
+        width: 1.9rem;
+        background: transparent center / 14px no-repeat
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a93ad' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6'/%3E%3C/svg%3E");
+        border: 1px solid var(--border2);
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .btn-trash:hover:not(:disabled) {
+        border-color: var(--error);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff4d6d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6'/%3E%3C/svg%3E");
+      }
+      .btn-trash:disabled { opacity: 0.35; cursor: not-allowed; }
+      td .actions { margin: 0; gap: 0.3rem; flex-wrap: nowrap; justify-content: flex-end; }
+      td:has(> .actions) { padding-right: 0; }
       .tag {
         display: inline-block;
         font-family: "IBM Plex Mono", monospace;
@@ -281,8 +321,8 @@
             <label for="keywords">
               Keywords
               <span class="help" tabindex="0">?<span class="tip" role="tooltip">
-                Uma por linha. O SitaQWeb busca no texto completo de cada discurso, e um discurso entra se
-                tiver qualquer uma delas. Termos com mais de uma palavra são buscados como frase exata.
+                Uma por linha. O SitaQWeb busca no texto completo dos discursos do Plenário, e um discurso entra
+                se tiver qualquer uma delas. Termos com mais de uma palavra são buscados como frase exata.
                 Acentos não fazem diferença na busca.
               </span></span>
             </label>
@@ -291,18 +331,19 @@
           <div class="row">
             <div class="field">
               <label for="data-inicio">Data inicial</label>
-              <input type="date" id="data-inicio" required value="2023-01-01" />
+              <div class="date-field">
+                <input type="text" id="data-inicio" required value="01/01/2000" />
+                <button type="button" class="date-btn" aria-label="Escolher data inicial no calendário"></button>
+                <input type="date" class="date-native" tabindex="-1" aria-hidden="true" />
+              </div>
             </div>
             <div class="field">
               <label for="data-fim">Data final</label>
-              <input type="date" id="data-fim" required />
-            </div>
-          </div>
-          <div class="field">
-            <span class="label">Base de busca</span>
-            <div class="radio-group">
-              <label class="inline"><input type="radio" name="base" value="plenario" checked /> Plenário</label>
-              <label class="inline"><input type="radio" name="base" value="comissoes" /> Comissões</label>
+              <div class="date-field">
+                <input type="text" id="data-fim" required />
+                <button type="button" class="date-btn" aria-label="Escolher data final no calendário"></button>
+                <input type="date" class="date-native" tabindex="-1" aria-hidden="true" />
+              </div>
             </div>
           </div>
           <div class="field">
@@ -439,6 +480,7 @@
           <tbody id="datasets-body"></tbody>
         </table>
         <p class="empty" id="datasets-empty" hidden>Nenhuma coleta ainda.</p>
+        <div class="msg error" id="datasets-error" hidden></div>
       </div>
 
       <h2>Análises</h2>
@@ -448,6 +490,7 @@
           <tbody id="runs-body"></tbody>
         </table>
         <p class="empty" id="runs-empty" hidden>Nenhuma análise ainda.</p>
+        <div class="msg error" id="runs-error" hidden></div>
       </div>
     </main>
 
@@ -462,6 +505,7 @@
       };
       const STAGES = [
         ["loading", "Carregando discursos e modelos"],
+        ["totals", "Total de discursos do Plenário por mês (para a proporção)"],
         ["embeddings", "Embeddings (texto → vetores)"],
         ["clustering", "Agrupamento em tópicos (UMAP + HDBSCAN + c-TF-IDF)"],
         ["reduce", "Redução de tópicos"],
@@ -475,7 +519,9 @@
 
       async function api(path, init) {
         const resp = await fetch(path, init);
-        const body = resp.headers.get("content-type")?.includes("json") ? await resp.json() : null;
+        // a 204 (delete) comes with a JSON content-type but an empty body
+        const text = await resp.text();
+        const body = text && resp.headers.get("content-type")?.includes("json") ? JSON.parse(text) : null;
         if (!resp.ok) {
           const detail = body?.detail;
           const msg = Array.isArray(detail)
@@ -533,22 +579,72 @@
           scrollTo($(`panel-${which}`));
         }),
       );
-      $("data-fim").value = new Date().toISOString().slice(0, 10);
+      // ── datas em dd/mm/aaaa (o campo nativo segue o idioma do navegador, ex.: m/d/a em inglês) ──
+      const pad = (n) => String(n).padStart(2, "0");
+      const toBr = (iso) => iso.split("-").reverse().join("/");
+
+      function parseBr(text) {
+        const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(text.trim());
+        if (!m) return null;
+        const [d, mo, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
+        const dt = new Date(Date.UTC(y, mo - 1, d));
+        const real = dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+        return real ? `${m[3]}-${m[2]}-${m[1]}` : null;
+      }
+
+      document.querySelectorAll(".date-field").forEach((field) => {
+        const text = field.querySelector('input[type="text"]');
+        const native = field.querySelector(".date-native");
+        Object.assign(text, { placeholder: "dd/mm/aaaa", inputMode: "numeric", maxLength: 10, autocomplete: "off" });
+        text.addEventListener("input", (e) => {
+          text.removeAttribute("aria-invalid");
+          if (e.inputType?.startsWith("delete")) return; // let backspace remove the slashes
+          const digits = text.value.replace(/\D/g, "").slice(0, 8);
+          text.value = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4)].filter(Boolean).join("/");
+        });
+        text.addEventListener("blur", () => {
+          if (text.value && !parseBr(text.value)) text.setAttribute("aria-invalid", "true");
+        });
+        field.querySelector(".date-btn").addEventListener("click", () => {
+          native.value = parseBr(text.value) || "";
+          try {
+            native.showPicker();
+          } catch {
+            text.focus();
+          }
+        });
+        native.addEventListener("change", () => {
+          if (!native.value) return;
+          text.value = toBr(native.value);
+          text.removeAttribute("aria-invalid");
+        });
+      });
+
+      const today = new Date();
+      $("data-fim").value = `${pad(today.getDate())}/${pad(today.getMonth() + 1)}/${today.getFullYear()}`;
 
       // ── nova coleta ──
       $("form-scrape").addEventListener("submit", async (e) => {
         e.preventDefault();
         $("scrape-error").hidden = true;
         const keywords = $("keywords").value.split("\n").map((k) => k.trim()).filter(Boolean);
+        const inicio = parseBr($("data-inicio").value);
+        const fim = parseBr($("data-fim").value);
+        for (const [id, iso] of [["data-inicio", inicio], ["data-fim", fim]]) {
+          if (!iso) $(id).setAttribute("aria-invalid", "true");
+        }
+        if (!inicio || !fim) {
+          showError("scrape-error", new Error("Data inválida: use o formato dd/mm/aaaa (ex.: 08/03/2015)."));
+          return;
+        }
         try {
           const ds = await api("/api/datasets/scrape", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               keywords,
-              data_inicio: $("data-inicio").value,
-              data_fim: $("data-fim").value,
-              base_pesq: document.querySelector('input[name="base"]:checked').value,
+              data_inicio: inicio,
+              data_fim: fim,
               name: $("scrape-name").value.trim() || null,
             }),
           });
@@ -582,7 +678,12 @@
       });
 
       // ── progresso da coleta ──
+      let shownDatasetId = null;
+      let shownRunId = null;
+      let shownRunDatasetId = null;
+
       function watchDataset(ds) {
+        shownDatasetId = ds.id;
         dsSource?.close();
         renderDataset(ds);
         $("panel-dataset").hidden = false;
@@ -717,6 +818,8 @@
 
       // ── progresso da análise ──
       function watchRun(run) {
+        shownRunId = run.id;
+        shownRunDatasetId = run.dataset_id;
         runSource?.close();
         renderRun(run);
         $("panel-run").hidden = false;
@@ -777,6 +880,7 @@
       // ── histórico ──
       async function refreshLists() {
         const [datasets, runs] = await Promise.all([api("/api/datasets"), api("/api/runs")]);
+        const runsOf = (id) => runs.filter((r) => r.dataset_id === id);
 
         $("datasets-empty").hidden = datasets.length > 0;
         $("datasets-body").replaceChildren(
@@ -787,6 +891,8 @@
             ];
             if (!active && ds.fetched)
               buttons.push(el("button", { class: "btn small", onclick: () => openConfig(ds) }, "Analisar"));
+            const busy = active || runsOf(ds.id).some((r) => r.status === "pending" || r.status === "running");
+            buttons.push(trashButton(`Excluir a coleta ${ds.name}`, busy, () => deleteDataset(ds, runsOf(ds.id).length)));
             return el("tr", {},
               el("td", {}, ds.name),
               el("td", {}, ds.source === "csv" ? "CSV" : "SitaQWeb"),
@@ -808,7 +914,9 @@
               el("td", {}, el("div", { class: "actions" },
                 ...(run.status === "done"
                   ? runLinks(run, true).slice(0, 2)
-                  : [el("button", { class: "btn secondary small", onclick: () => watchRun(run) }, "Ver")]))),
+                  : [el("button", { class: "btn secondary small", onclick: () => watchRun(run) }, "Ver")]),
+                trashButton(`Excluir a análise de ${run.dataset_name}`,
+                  run.status === "pending" || run.status === "running", () => deleteRun(run)))),
             ),
           ),
         );
@@ -818,6 +926,51 @@
         if (runningDs && !dsSource) watchDataset(runningDs);
         const runningRun = runs.find((r) => r.status === "pending" || r.status === "running");
         if (runningRun && !runSource) watchRun(runningRun);
+      }
+
+      function trashButton(label, disabled, onclick) {
+        const btn = el("button", { class: "btn-trash", "aria-label": label, onclick });
+        btn.title = disabled ? "Não é possível excluir enquanto está rodando" : label;
+        btn.disabled = disabled;
+        return btn;
+      }
+
+      async function deleteDataset(ds, nRuns) {
+        const analises = nRuns ? ` e ${nRuns === 1 ? "a análise feita" : `as ${nRuns} análises feitas`} com ela` : "";
+        const ok = confirm(
+          `Excluir a coleta "${ds.name}"?\n\n` +
+            `Os ${fmt(ds.fetched)} discursos${analises} serão apagados. ` +
+            "Discursos que também fazem parte de outra coleta continuam guardados nela.\n\n" +
+            "Esta ação não pode ser desfeita.",
+        );
+        if (!ok) return;
+        $("datasets-error").hidden = true;
+        try {
+          await api(`/api/datasets/${ds.id}`, { method: "DELETE" });
+        } catch (err) {
+          return showError("datasets-error", err);
+        }
+        if (shownDatasetId === ds.id) $("panel-dataset").hidden = true;
+        if (configDataset?.id === ds.id) $("panel-config").hidden = true;
+        if (shownRunDatasetId === ds.id) $("panel-run").hidden = true;
+        refreshLists();
+      }
+
+      async function deleteRun(run) {
+        const ok = confirm(
+          `Excluir a análise de "${run.dataset_name}" (${paramsText(run.params)})?\n\n` +
+            "O dashboard e os arquivos gerados serão apagados; a coleta continua.\n\n" +
+            "Esta ação não pode ser desfeita.",
+        );
+        if (!ok) return;
+        $("runs-error").hidden = true;
+        try {
+          await api(`/api/runs/${run.id}`, { method: "DELETE" });
+        } catch (err) {
+          return showError("runs-error", err);
+        }
+        if (shownRunId === run.id) $("panel-run").hidden = true;
+        refreshLists();
       }
 
       loadOptions().then(refreshLists);

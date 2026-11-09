@@ -592,7 +592,89 @@
       }
 
       .mk-grid {
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      }
+
+      /* grid items default to min-width: auto, so a wide table would stretch the page */
+      .grid > * {
+        min-width: 0;
+      }
+
+      .mk-intro {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+
+      .mk-intro .card-desc {
+        flex: 1 1 380px;
+      }
+
+      .card-desc strong {
+        color: var(--text);
+      }
+
+      .seg {
+        display: inline-flex;
+        border: 1px solid var(--border2);
+        border-radius: 6px;
+        overflow: hidden;
+        flex: none;
+      }
+
+      .seg button {
+        background: transparent;
+        border: 0;
+        color: var(--dim);
+        padding: 0.4rem 0.9rem;
+        font: 500 0.72rem "IBM Plex Sans", sans-serif;
+        cursor: pointer;
+      }
+
+      .seg button + button {
+        border-left: 1px solid var(--border2);
+      }
+
+      .seg button[aria-checked="true"] {
+        background: rgba(0, 229, 176, 0.12);
+        color: var(--accent);
+      }
+
+      .seg button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .mk-test {
+        display: grid;
+        grid-template-columns: 4.2rem 1fr;
+        gap: 0.15rem 0.5rem;
+        align-items: baseline;
+        margin-top: 0.55rem;
+      }
+
+      .mk-test-name {
+        font-size: 0.62rem;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: var(--dim);
+      }
+
+      .mk-test .mk-val {
+        font-size: 0.95rem;
+      }
+
+      .mk-test .mk-sub {
+        grid-column: 2;
+        margin-top: 0;
+      }
+
+      .mk-na {
+        font-size: 0.72rem;
+        color: var(--dim);
+        line-height: 1.4;
       }
 
       body.standalone .app-only {
@@ -805,22 +887,26 @@
         <div id="section-stats" class="section">
           <div class="card" style="margin-bottom: 1rem">
             <div class="card-title">
-              Teste de Mann-Kendall — tendências na série temporal
+              Tendências — teste de Mann-Kendall
             </div>
-            <p
-              style="
-                font-size: 0.75rem;
-                color: var(--dim);
-                margin-bottom: 0.8rem;
-                line-height: 1.6;
-              "
-            >
-              Teste não-paramétrico que detecta tendências monotônicas.
-              <strong style="color: var(--text)">p &lt; 0.05</strong> =
-              tendência estatisticamente significativa. Tau positivo =
-              crescimento; negativo = queda.
-            </p>
+            <div class="mk-intro">
+              <p class="card-desc">
+                Detecta se a série cresce ou diminui de forma consistente.
+                <strong>p &lt; 0,05</strong> = tendência estatisticamente
+                significativa; τ positivo = crescimento, negativo = queda.
+                <strong>Anual</strong>: compara os anos completos entre si.
+                <strong>Sazonal</strong>: compara cada mês só com o mesmo mês
+                de outros anos (março com março), o que neutraliza datas
+                como 8 de março e o recesso.
+              </p>
+              <div class="seg" role="radiogroup" aria-label="Série analisada">
+                <button role="radio" data-serie="proporcao">Proporção</button>
+                <button role="radio" data-serie="contagem">Contagem</button>
+              </div>
+            </div>
+            <p class="card-desc" id="serie-desc"></p>
             <div class="mk-grid" id="mk-grid"></div>
+            <div id="mk-notes"></div>
           </div>
 
           <div class="grid grid-2">
@@ -859,12 +945,16 @@
             </div>
             <div class="card col-span-2">
               <div class="card-title">
-                Tendência de cada tópico — Mann-Kendall sobre a contagem anual
+                Tendência de cada tópico — <span id="mk-topicos-serie"></span>
               </div>
               <div class="tbl-wrap">
                 <table>
                   <thead>
-                    <tr><th>Tópico</th><th class="num">Discursos</th><th>Tendência</th><th class="num">p</th><th class="num">τ</th></tr>
+                    <tr>
+                      <th>Tópico</th><th class="num">Discursos</th>
+                      <th>Anual</th><th class="num">p</th><th class="num">τ</th>
+                      <th>Sazonal</th><th class="num">p</th><th class="num">τ</th>
+                    </tr>
                   </thead>
                   <tbody id="tbl-mk-topicos-body"></tbody>
                 </table>
@@ -1006,6 +1096,12 @@
         if (!data.modelo || !data.evolucao_temporal) {
           throw new Error(
             "este JSON não é do formato novo (gerado pelo app). JSONs do pipeline antigo não são compatíveis.",
+          );
+        }
+        if (!data.tendencias) {
+          throw new Error(
+            "este JSON foi gerado antes dos testes de tendência anual/sazonal. Rode a análise de novo no app " +
+              "(a coleta e os embeddings são reaproveitados, então leva poucos segundos).",
           );
         }
         RAW = data;
@@ -1395,27 +1491,7 @@
       const trendOf = (t) => TREND[t] || [t || "—", "mk-trend-no", ""];
 
       function renderEstatisticas() {
-        const cards = [
-          { titulo: "Total de discursos", cor: C.acc, ...D.mann_kendall_geral },
-          ...(D.mann_kendall_por_espectro || []).map((r) => ({ titulo: r.espectro, cor: espColor(r.espectro), ...r })),
-        ];
-        document.getElementById("mk-grid").innerHTML = cards
-          .map((r) => {
-            const [label, cls, icon] = trendOf(r.tendencia);
-            return `
-        <div class="mk-card">
-          <div class="mk-card-title" style="color:${r.cor}">${esc(r.titulo)}</div>
-          <div class="mk-val ${cls}">${esc(label)}${icon}</div>
-          <div class="mk-sub">p = ${num(r.p, 4)} &nbsp;|&nbsp; τ = ${num(r.tau, 3)}</div>
-        </div>`;
-          })
-          .join("");
-        if (cards.some((r) => r.tendencia === "dados insuficientes")) {
-          document.getElementById("mk-grid").insertAdjacentHTML(
-            "afterend",
-            '<p class="card-desc" style="margin-top:0.8rem">"Dados insuficientes": o teste precisa de ao menos 4 anos de dados.</p>',
-          );
-        }
+        renderTendencias();
 
         const cvEl = document.getElementById("cv-bars");
         const cvData = (D.cv_por_partido || []).filter((d) => d.cv != null);
@@ -1444,15 +1520,8 @@
           (r) => `<tr><td>${esc(r.par)}</td><td class="num">${num(r.r, 3)}</td><td class="num">${num(r.p, 4)}</td><td class="num">${num(cos[r.par], 3)}</td></tr>`,
         );
         document.getElementById("tbl-corr-body").innerHTML =
-          corrRows.join("") || '<tr><td colspan="4" class="empty">Precisa de ao menos 4 anos de dados.</td></tr>';
-
-        document.getElementById("tbl-mk-topicos-body").innerHTML = (D.mann_kendall_por_topico || [])
-          .map((r) => {
-            const [label, cls, icon] = trendOf(r.tendencia);
-            return `<tr><td title="${esc(r.topico)}">${esc(r.topico)}</td><td class="num">${r.total.toLocaleString("pt-BR")}</td>
-          <td class="${cls}">${esc(label)}${icon}</td><td class="num">${num(r.p, 4)}</td><td class="num">${num(r.tau, 3)}</td></tr>`;
-          })
-          .join("");
+          corrRows.join("") ||
+          `<tr><td colspan="4" class="empty">Disponível para coletas com ${D.tendencias.cobertura.min_anos_anual} anos completos ou mais.</td></tr>`;
 
         const m = D.modelo;
         document.getElementById("modelo-resumo").textContent =
@@ -1468,6 +1537,106 @@
           const blob = new Blob(["﻿" + lines.map((l) => l.map(q).join(",")).join("\n")], { type: "text/csv" });
           download(URL.createObjectURL(blob), "metodologia.csv", true);
         };
+      }
+
+      // ── TENDÊNCIAS (Mann-Kendall anual e sazonal, contagem e proporção) ──
+      let serieAtual = null;
+
+      function renderTendencias() {
+        const T = D.tendencias;
+        const cob = T.cobertura;
+        const buttons = document.querySelectorAll(".seg button");
+        if (!serieAtual) serieAtual = cob.proporcao_disponivel ? "proporcao" : "contagem";
+        buttons.forEach((b) => {
+          const isProp = b.dataset.serie === "proporcao";
+          b.disabled = isProp && !cob.proporcao_disponivel;
+          b.title = b.disabled ? "Os totais do Plenário não estão disponíveis nesta análise" : "";
+          b.setAttribute("aria-checked", String(b.dataset.serie === serieAtual));
+          b.onclick = () => {
+            serieAtual = b.dataset.serie;
+            renderTendencias();
+          };
+        });
+
+        document.getElementById("serie-desc").innerHTML =
+          serieAtual === "proporcao"
+            ? "<strong>Proporção</strong>: discursos do grupo ÷ todos os discursos do Plenário no mesmo período. " +
+              "Mede se o tema ganhou espaço no debate e neutraliza anos eleitorais e o recesso."
+            : "<strong>Contagem</strong>: número de discursos. Sobe e desce junto com a atividade geral da Câmara " +
+              "(anos eleitorais, recesso), o que pode esconder ou criar tendências.";
+
+        const series = T.series;
+        const cards = series.filter((s) => s.grupo !== "topico");
+        document.getElementById("mk-grid").innerHTML = cards
+          .map((s) => {
+            const cor = s.grupo === "geral" ? C.acc : espColor(s.nome);
+            const r = s[serieAtual];
+            return `
+        <div class="mk-card">
+          <div class="mk-card-title" style="color:${cor}">${esc(s.nome)}</div>
+          ${testBlock("Anual", r?.anual, "anual")}
+          ${testBlock("Sazonal", r?.sazonal, "sazonal")}
+        </div>`;
+          })
+          .join("");
+
+        const notes = [];
+        const periodo = `${cob.meses} meses, ${cob.anos_completos} ${cob.anos_completos === 1 ? "ano completo" : "anos completos"}`;
+        notes.push(`Período analisado: ${periodo}. Anual: precisa de ${cob.min_anos_anual} anos completos. ` +
+          `Sazonal: precisa de ${cob.min_meses_sazonal} meses.`);
+        if (cob.sazonal_disponivel && !cob.anual_disponivel) {
+          notes.push("Com poucos anos, a alternância entre anos com e sem eleição ainda pode pesar no resultado; " +
+            "trate tendências como indicativas.");
+        }
+        if (cob.anual_disponivel && cob.anos_completos < 10) {
+          notes.push(`Com menos de 10 anos, só tendências fortes chegam a p < 0,05: "sem tendência" não garante que não houve mudança.`);
+        }
+        if (serieAtual === "proporcao") {
+          notes.push("Nos espectros, o denominador é o total do Plenário, não o de cada bancada: " +
+            "se um espectro elege mais deputados, sua fatia pode subir sem que cada deputado fale mais.");
+          if (cob.meses_sem_total.length) {
+            notes.push(`${cob.meses_sem_total.length} ${cob.meses_sem_total.length === 1 ? "mês ficou" : "meses ficaram"} ` +
+              `fora da proporção porque o SitaQWeb não respondeu (${cob.meses_sem_total.slice(0, 6).join(", ")}` +
+              `${cob.meses_sem_total.length > 6 ? ", …" : ""}). Rodar a análise de novo tenta buscá-los.`);
+          }
+        }
+        document.getElementById("mk-notes").innerHTML = notes
+          .map((n) => `<p class="card-desc" style="margin: 0.8rem 0 0">${esc(n)}</p>`)
+          .join("");
+
+        document.getElementById("mk-topicos-serie").textContent = serieAtual === "proporcao" ? "proporção" : "contagem";
+        const cell = (r) => {
+          if (!r) return '<td class="mk-trend-no">—</td><td class="num">—</td><td class="num">—</td>';
+          const [label, cls, icon] = trendOf(r.tendencia);
+          return `<td class="${cls}">${esc(label)}${icon}</td><td class="num">${num(r.p, 4)}</td><td class="num">${num(r.tau, 3)}</td>`;
+        };
+        document.getElementById("tbl-mk-topicos-body").innerHTML = series
+          .filter((s) => s.grupo === "topico")
+          .sort((a, b) => b.total - a.total)
+          .map((s) => {
+            const r = s[serieAtual];
+            return `<tr><td title="${esc(s.nome)}">${esc(s.nome)}</td><td class="num">${s.total.toLocaleString("pt-BR")}</td>
+          ${cell(r?.anual)}${cell(r?.sazonal)}</tr>`;
+          })
+          .join("");
+      }
+
+      function testBlock(nome, r, tipo) {
+        if (!r) {
+          const cob = D.tendencias.cobertura;
+          const motivo =
+            tipo === "anual"
+              ? `Só para coletas com ${cob.min_anos_anual}+ anos completos (esta: ${cob.anos_completos}).`
+              : `Só para coletas com ${cob.min_meses_sazonal}+ meses (esta: ${cob.meses}).`;
+          return `<div class="mk-test"><span class="mk-test-name">${nome}</span><span class="mk-na">${motivo}</span></div>`;
+        }
+        const [label, cls, icon] = trendOf(r.tendencia);
+        return `
+          <div class="mk-test">
+            <span class="mk-test-name">${nome}</span>
+            <span class="mk-val ${cls}">${esc(label)}${icon}</span>
+            <span class="mk-sub">p = ${num(r.p, 4)} | τ = ${num(r.tau, 3)} | n = ${r.n}</span>
+          </div>`;
       }
 
       // ── TABS ─────────────────────────────────────────────────────────────

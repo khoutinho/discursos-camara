@@ -28,7 +28,6 @@ CREATE TABLE IF NOT EXISTS datasets (
     keywords TEXT,
     data_inicio TEXT,
     data_fim TEXT,
-    base_pesq TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     total_expected INTEGER,
     error TEXT,
@@ -55,6 +54,12 @@ CREATE TABLE IF NOT EXISTS embeddings (
     model TEXT NOT NULL,
     vector BLOB NOT NULL,
     PRIMARY KEY (speech_id, model)
+);
+
+CREATE TABLE IF NOT EXISTS plenary_month_totals (
+    month TEXT PRIMARY KEY,
+    total INTEGER NOT NULL,
+    fetched_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS runs (
@@ -105,13 +110,12 @@ def create_scrape_dataset(
     keywords: list[str],
     data_inicio: str,
     data_fim: str,
-    base_pesq: str,
 ) -> int:
     now = _now()
     cur = conn.execute(
-        "INSERT INTO datasets (name, source, keywords, data_inicio, data_fim, base_pesq, created_at, updated_at) "
-        "VALUES (?, 'sitaqweb', ?, ?, ?, ?, ?, ?)",
-        (name, json.dumps(keywords, ensure_ascii=False), data_inicio, data_fim, base_pesq, now, now),
+        "INSERT INTO datasets (name, source, keywords, data_inicio, data_fim, created_at, updated_at) "
+        "VALUES (?, 'sitaqweb', ?, ?, ?, ?, ?)",
+        (name, json.dumps(keywords, ensure_ascii=False), data_inicio, data_fim, now, now),
     )
     conn.commit()
     return cur.lastrowid
@@ -252,6 +256,19 @@ def save_embeddings(conn: sqlite3.Connection, speech_ids: list[int], model: str,
     conn.commit()
 
 
+def cached_month_totals(conn: sqlite3.Connection) -> dict[str, tuple[int, str]]:
+    """{'YYYY-MM': (total, fetched_at)} de todos os meses já consultados."""
+    return {r["month"]: (r["total"], r["fetched_at"]) for r in conn.execute("SELECT * FROM plenary_month_totals")}
+
+
+def save_month_total(conn: sqlite3.Connection, month: str, total: int) -> None:
+    conn.execute(
+        "INSERT OR REPLACE INTO plenary_month_totals (month, total, fetched_at) VALUES (?, ?, ?)",
+        (month, total, datetime.now().date().isoformat()),
+    )
+    conn.commit()
+
+
 def create_run(conn: sqlite3.Connection, dataset_id: int, params: dict) -> int:
     now = _now()
     cur = conn.execute(
@@ -286,6 +303,28 @@ def get_run(conn: sqlite3.Connection, run_id: int) -> dict | None:
 def list_runs(conn: sqlite3.Connection) -> list[dict]:
     ids = [r["id"] for r in conn.execute("SELECT id FROM runs ORDER BY id DESC")]
     return [get_run(conn, i) for i in ids]
+
+
+def delete_run(conn: sqlite3.Connection, run_id: int) -> None:
+    conn.execute("DELETE FROM runs WHERE id=?", (run_id,))
+    conn.commit()
+
+
+def delete_dataset(conn: sqlite3.Connection, dataset_id: int) -> list[int]:
+    """
+    Apaga o dataset, as análises dele e os discursos que não pertencem a nenhum outro dataset.
+
+    Returns:
+        ids das análises apagadas (para remover os arquivos delas).
+    """
+    run_ids = [r["id"] for r in conn.execute("SELECT id FROM runs WHERE dataset_id=?", (dataset_id,))]
+    conn.execute("DELETE FROM runs WHERE dataset_id=?", (dataset_id,))
+    conn.execute("DELETE FROM datasets WHERE id=?", (dataset_id,))  # cascades to dataset_speeches
+    orphans = "SELECT id FROM speeches WHERE id NOT IN (SELECT speech_id FROM dataset_speeches)"
+    conn.execute(f"DELETE FROM embeddings WHERE speech_id IN ({orphans})")
+    conn.execute(f"DELETE FROM speeches WHERE id IN ({orphans})")
+    conn.commit()
+    return run_ids
 
 
 def run_dir(run_id: int) -> Path:
