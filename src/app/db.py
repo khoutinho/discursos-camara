@@ -56,6 +56,16 @@ CREATE TABLE IF NOT EXISTS embeddings (
     PRIMARY KEY (speech_id, model)
 );
 
+-- segundos por discurso medidos nesta máquina, por modelo e dispositivo (estimativa de tempo)
+CREATE TABLE IF NOT EXISTS embedding_speed (
+    model TEXT NOT NULL,
+    device TEXT NOT NULL,
+    sec_per_doc REAL NOT NULL,
+    n_docs INTEGER NOT NULL,
+    measured_at TEXT NOT NULL,
+    PRIMARY KEY (model, device)
+);
+
 CREATE TABLE IF NOT EXISTS plenary_month_totals (
     month TEXT PRIMARY KEY,
     total INTEGER NOT NULL,
@@ -254,6 +264,28 @@ def save_embeddings(conn: sqlite3.Connection, speech_ids: list[int], model: str,
         [(sid, model, vec.astype(np.float32).tobytes()) for sid, vec in zip(speech_ids, vectors)],
     )
     conn.commit()
+
+
+def count_embeddings(conn: sqlite3.Connection, dataset_id: int, model: str) -> int:
+    """Quantos discursos do dataset já têm embedding guardado para este modelo."""
+    return conn.execute(
+        "SELECT COUNT(*) FROM dataset_speeches ds JOIN embeddings e ON e.speech_id = ds.speech_id "
+        "WHERE ds.dataset_id = ? AND e.model = ?",
+        (dataset_id, model),
+    ).fetchone()[0]
+
+
+def save_embedding_speed(conn: sqlite3.Connection, model: str, device: str, sec_per_doc: float, n_docs: int) -> None:
+    conn.execute(
+        "INSERT OR REPLACE INTO embedding_speed (model, device, sec_per_doc, n_docs, measured_at) VALUES (?, ?, ?, ?, ?)",
+        (model, device, sec_per_doc, n_docs, _now()),
+    )
+    conn.commit()
+
+
+def get_embedding_speed(conn: sqlite3.Connection, model: str, device: str) -> dict | None:
+    row = conn.execute("SELECT * FROM embedding_speed WHERE model=? AND device=?", (model, device)).fetchone()
+    return dict(row) if row else None
 
 
 def cached_month_totals(conn: sqlite3.Connection) -> dict[str, tuple[int, str]]:

@@ -804,8 +804,8 @@
         <div id="section-topicos" class="section">
           <div class="note">
             Cada tópico é nomeado pelas 5 palavras que mais o caracterizam.
-            As porcentagens consideram o tópico principal de cada discurso e
-            excluem o ruído (<span id="topicos-ruido"></span>).
+            As porcentagens consideram o tópico principal de cada discurso
+            (<span id="topicos-ruido"></span>).
           </div>
           <div class="grid grid-2">
             <div class="card col-span-2">
@@ -1183,7 +1183,9 @@
           { val: total.toLocaleString("pt-BR"), lbl: "Discursos" },
           { val: periodo, lbl: "Período" },
           { val: D.modelo.n_topicos, lbl: "Tópicos" },
-          { val: D.modelo.pct_ruido + "%", lbl: "Ruído" },
+          D.modelo.n_reatribuidos
+            ? { val: D.modelo.pct_reatribuidos + "%", lbl: "Reatribuídos" }
+            : { val: D.modelo.pct_ruido + "%", lbl: "Ruído" },
           { val: (espCount["Esquerda"] || 0).toLocaleString("pt-BR"), lbl: "Esquerda" },
           { val: (espCount["Centro"] || 0).toLocaleString("pt-BR"), lbl: "Centro" },
           { val: (espCount["Direita"] || 0).toLocaleString("pt-BR"), lbl: "Direita" },
@@ -1317,8 +1319,10 @@
 
       function renderTopicos() {
         const freq = D.topicos_freq || [];
-        document.getElementById("topicos-ruido").textContent =
-          `${D.modelo.pct_ruido}% dos discursos não se encaixaram em nenhum tópico`;
+        document.getElementById("topicos-ruido").textContent = D.modelo.n_reatribuidos
+          ? `${D.modelo.pct_reatribuidos}% dos discursos não se encaixaram em nenhum tópico no agrupamento ` +
+            `e foram atribuídos ao tópico mais próximo`
+          : `o ruído fica de fora: ${D.modelo.pct_ruido}% dos discursos não se encaixaram em nenhum tópico`;
 
         const container = document.getElementById("topic-bars-geral");
         if (!freq.length) {
@@ -1526,7 +1530,13 @@
         const m = D.modelo;
         document.getElementById("modelo-resumo").textContent =
           `${m.n_topicos} tópicos encontrados em ${m.n_discursos.toLocaleString("pt-BR")} discursos; ` +
-          `${m.n_ruido.toLocaleString("pt-BR")} (${m.pct_ruido}%) ficaram como ruído.`;
+          (m.n_reatribuidos
+            ? `${m.n_reatribuidos.toLocaleString("pt-BR")} (${m.pct_reatribuidos}%) ficaram como ruído no ` +
+              `agrupamento e foram atribuídos ao tópico mais próximo. `
+            : `${m.n_ruido.toLocaleString("pt-BR")} (${m.pct_ruido}%) ficaram como ruído. `) +
+          (m.n_multi_label != null
+            ? `${m.n_multi_label.toLocaleString("pt-BR")} (${m.pct_multi_label}%) receberam mais de um tópico (multi-label).`
+            : "");
         const rows = D.metodologia || [];
         document.getElementById("tbl-metodologia-body").innerHTML = rows
           .map((r) => `<tr><td>${esc(r.etapa)}</td><td>${esc(r.parametro)}</td><td class="num">${esc(r.valor)}</td><td>${esc(r.descricao)}</td></tr>`)

@@ -2,46 +2,115 @@
 Topic modeling com BERTopic: embeddings, HDBSCAN, representação KeyBERT+MMR.
 
 Fluxo:
-1. Texto original (natural, com acentos) → sentence-transformer → embeddings
+1. Texto limpo (text_cleaning: sem cabeçalho, vocativos, falas de outros) → sentence-transformer → embeddings
+   (discurso dividido em trechos quando o modelo lê pouco; embedding = média dos trechos)
 2. UMAP reduz dimensionalidade dos embeddings
-3. HDBSCAN descobre clusters (tópicos) automaticamente
-4. reduce_topics() simplifica para um número gerenciável
-5. CountVectorizer com stopwords de domínio → c-TF-IDF → labels
-6. KeyBERT + MMR refinam as labels pra diversidade e relevância
-7. Probabilidades por tópico permitem multi-label por discurso
+3. HDBSCAN descobre clusters (tópicos) automaticamente, com pertencimento suave a cada tópico
+4. reduce_topics() une tópicos parecidos, se pedido (nr_topics)
+5. reduce_outliers() leva o ruído para o tópico mais próximo, se configurado
+6. CountVectorizer com stopwords de domínio + só palavras de conteúdo (vocabulary.py) → c-TF-IDF → labels
+7. KeyBERT + MMR refinam as labels pra diversidade e relevância
+8. Pertencimento suave por tópico permite multi-label por discurso
 """
 
-import re
+import time
 import warnings
+
 import numpy as np
 import pandas as pd
-import spacy
 from bertopic import BERTopic
 from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
 from bertopic.vectorizers import ClassTfidfTransformer
 from hdbscan import HDBSCAN
-from nltk.corpus import stopwords
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import CountVectorizer
 from umap import UMAP
 
 from .config import STOPWORDS_DOMAIN
-from .model_config import TopicModelConfig, methodology
+from .model_config import EMBEDDING_MODELS, TopicModelConfig, embedding_cache_key, methodology
+from .vocabulary import non_content_words
 
 warnings.filterwarnings('ignore')
 
+LABEL_MAX_SEQ_LENGTH = 512  # contexto do modelo usado só para escolher os rótulos (KeyBERTInspired)
+VOCAB_TOKEN_PATTERN = r'(?u)\b[^\W\d_]{2,}\b'  # só palavras com letras (sem números como "2023", "16")
 
-def iter_encode(texts: list[str], model_name: str, chunk_size: int = 256):
+
+def split_words(text: str, n_words: int | None) -> list[str]:
+    """Divide o texto em trechos de n_words palavras; um resto curto (< 1/4) vai para o trecho anterior."""
+    words = text.split()
+    if not n_words or len(words) <= n_words:
+        return [text]
+    parts = [words[i:i + n_words] for i in range(0, len(words), n_words)]
+    if len(parts[-1]) < n_words // 4:
+        last = parts.pop()
+        parts[-1] += last
+    return [' '.join(p) for p in parts]
+
+
+def load_embedder(model_key: str) -> SentenceTransformer:
+    spec = EMBEDDING_MODELS[model_key]
+    model = SentenceTransformer(spec.hf_name)
+    model.max_seq_length = spec.max_seq_length
+    if spec.fp16_on_gpu and model.device.type == 'cuda':
+        model.half()
+    return model
+
+
+def iter_encode(texts: list[str], model_key: str, docs_per_block: int = 64):
     """
-    Gera embeddings em blocos, para quem chama poder salvar e mostrar progresso a cada bloco.
+    Gera embeddings em blocos de discursos, para quem chama poder salvar e mostrar progresso.
+
+    Cada discurso é dividido em trechos (se o modelo pedir); o embedding do discurso é a média
+    normalizada dos embeddings dos trechos.
 
     Yields:
         (índice inicial do bloco, array float32 do bloco)
     """
-    embedder = SentenceTransformer(model_name)
-    for start in range(0, len(texts), chunk_size):
-        chunk = texts[start:start + chunk_size]
-        yield start, embedder.encode(chunk, batch_size=32, show_progress_bar=False).astype(np.float32)
+    spec = EMBEDDING_MODELS[model_key]
+    embedder = load_embedder(model_key)
+    for start in range(0, len(texts), docs_per_block):
+        block = texts[start:start + docs_per_block]
+        pieces, owner = [], []
+        for i, text in enumerate(block):
+            for piece in split_words(text, spec.chunk_words):
+                pieces.append(piece)
+                owner.append(i)
+        vecs = embedder.encode(pieces, batch_size=spec.batch_size, normalize_embeddings=True,
+                               show_progress_bar=False, convert_to_numpy=True).astype(np.float32)
+        owner = np.array(owner)
+        out = np.vstack([vecs[owner == i].mean(axis=0) for i in range(len(block))])
+        out /= np.linalg.norm(out, axis=1, keepdims=True)
+        yield start, out.astype(np.float32)
+
+
+def device_info() -> dict:
+    """{'device': 'cuda'|'cpu', 'gpu': nome da GPU ou None}."""
+    import torch
+    if torch.cuda.is_available():
+        return {'device': 'cuda', 'gpu': torch.cuda.get_device_name(0)}
+    return {'device': 'cpu', 'gpu': None}
+
+
+class _ContentVectorizer(CountVectorizer):
+    """CountVectorizer que descarta bigramas de palavra repetida ("democracia democracia").
+
+    Eles surgem quando as stopwords entre duas ocorrências da mesma palavra são removidas.
+    """
+
+    def build_analyzer(self):
+        analyze = super().build_analyzer()
+
+        def analyzer(doc):
+            out = []
+            for term in analyze(doc):
+                parts = term.split(' ')
+                if len(parts) == 2 and parts[0] == parts[1]:
+                    continue
+                out.append(term)
+            return out
+
+        return analyzer
 
 
 class TopicModeler:
@@ -51,6 +120,8 @@ class TopicModeler:
         self.config = config or TopicModelConfig()
         self.model: BERTopic | None = None
         self.embeddings: np.ndarray | None = None
+        self.n_docs: int | None = None
+        self.min_cluster_size: int | None = None
 
     def fit(
         self,
@@ -62,28 +133,36 @@ class TopicModeler:
         Roda o pipeline completo de topic modeling.
 
         Args:
-            documents: Series com o texto original (natural, com acentos) de cada discurso.
+            documents: Series com o texto limpo de cada discurso.
             progress_callback: Callable(stage: str, pct: float) opcional pra barra de progresso.
             embeddings: embeddings já calculados (mesma ordem de documents); se None, calcula.
 
         Returns:
             dict com:
-                - topics: array de tópico dominante por documento
-                - probabilities: matrix de probabilidades por tópico
+                - topics: array de tópico principal por documento
+                - reassigned: array bool — discurso era ruído e foi levado ao tópico mais próximo
+                - n_noise: discursos que o HDBSCAN deixou como ruído (antes da reatribuição)
+                - probabilities: matriz documentos × tópicos de pertencimento suave
                 - topic_labels: dict {topic_id: "label descritiva"}
                 - multi_labels: list de listas — tópicos atribuídos a cada doc (multi-label)
                 - model: o objeto BERTopic treinado
         """
         cfg = self.config
         _cb = progress_callback or (lambda *a: None)
+        docs_list = documents.tolist()
+        self.n_docs = len(docs_list)
 
-        # ── 1. Embeddings sobre texto original ──
-        # KeyBERTInspired needs the embedder even when embeddings are precomputed
-        embedder = SentenceTransformer(cfg.embedding_model)
+        # ── 1. Embeddings ──
         if embeddings is None:
             _cb('embeddings', 0.0)
-            embeddings = self._get_or_compute_embeddings(documents, embedder)
+            embeddings = self._get_or_compute_embeddings(docs_list)
             _cb('embeddings', 1.0)
+
+        # KeyBERTInspired needs the embedder even when embeddings are precomputed.
+        # It only embeds candidate words and a few representative docs to pick labels, so a short
+        # context is enough; long-context models (bge-m3: 8192 tokens) would otherwise exhaust GPU memory.
+        embedder = load_embedder(cfg.embedding_model)
+        embedder.max_seq_length = min(embedder.max_seq_length, LABEL_MAX_SEQ_LENGTH)
 
         # ── 2. Componentes do BERTopic ──
         _cb('clustering', 0.0)
@@ -96,15 +175,18 @@ class TopicModeler:
             random_state=42,
         )
 
+        self.min_cluster_size = cfg.resolved_min_cluster_size(len(docs_list))
         hdbscan_model = HDBSCAN(
-            min_cluster_size=cfg.min_cluster_size,
+            min_cluster_size=self.min_cluster_size,
             min_samples=cfg.min_samples,
             metric='euclidean',
+            cluster_selection_method=cfg.spec.cluster_selection_method,
             prediction_data=True,
         )
 
-        vectorizer = CountVectorizer(
-            stop_words=list(STOPWORDS_DOMAIN),
+        vectorizer = _ContentVectorizer(
+            stop_words=sorted(STOPWORDS_DOMAIN | non_content_words(docs_list)),
+            token_pattern=VOCAB_TOKEN_PATTERN,
             min_df=2,
             ngram_range=(1, 2),
         )
@@ -124,12 +206,12 @@ class TopicModeler:
             ctfidf_model=ctfidf,
             representation_model=representation,
             language='portuguese',
+            calculate_probabilities=True,  # pertencimento suave a cada tópico, usado no multi-label
             verbose=True,
-            min_topic_size=cfg.min_cluster_size,
+            min_topic_size=self.min_cluster_size,
         )
 
         # ── 3. Fit ──
-        docs_list = documents.tolist()
         topics, probs = self.model.fit_transform(docs_list, embeddings)
 
         # ── 4. Reduzir tópicos (se configurado) ──
@@ -139,16 +221,32 @@ class TopicModeler:
             topics = self.model.topics_
             probs = self.model.probabilities_
 
-        # ── 5. Labels ──
+        # ── 5. Ruído → tópico mais próximo (se configurado) ──
+        topics = np.array(topics)
+        noise = topics == -1
+        if cfg.reduce_outliers and noise.any() and (topics != -1).any():
+            new_topics = self.model.reduce_outliers(
+                docs_list, list(topics), strategy='embeddings', embeddings=embeddings,
+            )
+            self.model.update_topics(
+                docs_list, topics=new_topics, vectorizer_model=vectorizer,
+                ctfidf_model=ctfidf, representation_model=representation,
+            )
+            topics = np.array(new_topics)
+        reassigned = noise & (topics != -1)
+
+        # ── 6. Labels ──
         topic_labels = self._extract_labels()
 
-        # ── 6. Multi-label ──
+        # ── 7. Multi-label ──
         multi_labels = self._assign_multi_labels(probs, topics, topic_labels)
 
         self.embeddings = embeddings
 
         return {
-            'topics': np.array(topics),
+            'topics': topics,
+            'reassigned': reassigned,
+            'n_noise': int(noise.sum()),
             'probabilities': probs,
             'topic_labels': topic_labels,
             'multi_labels': multi_labels,
@@ -157,29 +255,25 @@ class TopicModeler:
 
     def methodology(self) -> list[dict]:
         """Parâmetros usados em cada etapa, em formato de tabela (para o paper)."""
-        return methodology(self.config)
+        return methodology(self.config, self.n_docs)
 
-    def _get_or_compute_embeddings(
-        self, documents: pd.Series, embedder: SentenceTransformer,
-    ) -> np.ndarray:
-        """Gera embeddings ou carrega do cache."""
+    def _get_or_compute_embeddings(self, docs: list[str]) -> np.ndarray:
+        """Gera embeddings ou carrega do cache em disco (linha de comando)."""
         cfg = self.config
         cache_path = None
 
         if cfg.cache_dir:
             cfg.cache_dir.mkdir(parents=True, exist_ok=True)
-            model_slug = cfg.embedding_model.replace('/', '_')
-            cache_path = cfg.cache_dir / f'embeddings_{model_slug}_{len(documents)}.npy'
+            model_slug = embedding_cache_key(cfg.embedding_model).replace('/', '_').replace('|', '_')
+            cache_path = cfg.cache_dir / f'embeddings_{model_slug}_{len(docs)}.npy'
             if cache_path.exists():
                 print(f"Carregando embeddings do cache: {cache_path}")
                 return np.load(cache_path)
 
-        print(f"Gerando embeddings com {cfg.embedding_model}...")
-        embeddings = embedder.encode(
-            documents.tolist(),
-            show_progress_bar=True,
-            batch_size=32,
-        )
+        print(f"Gerando embeddings com {cfg.spec.hf_name}...")
+        t0 = time.time()
+        embeddings = np.vstack([v for _, v in iter_encode(docs, cfg.embedding_model)])
+        print(f"Embeddings prontos em {time.time() - t0:.0f}s")
 
         if cache_path:
             np.save(cache_path, embeddings)
@@ -202,30 +296,25 @@ class TopicModeler:
 
     def _assign_multi_labels(
         self,
-        probs: np.ndarray,
-        topics: list[int],
+        probs: np.ndarray | None,
+        topics: np.ndarray,
         labels: dict[int, str],
     ) -> list[list[str]]:
-        """Atribui múltiplos tópicos por documento baseado no threshold de probabilidade."""
+        """
+        Tópicos de cada discurso: o principal primeiro, depois os outros cujo pertencimento suave
+        (coluna j de probs = tópico j) passa do threshold, do maior para o menor.
+        """
         threshold = self.config.multi_label_threshold
         multi = []
-
-        if probs is None or probs.ndim != 2:
-            for t in topics:
-                multi.append([labels.get(t, f'T{t}')] if t != -1 else [])
-            return multi
-
-        topic_ids = sorted(t for t in labels if t != -1)
-
-        for i in range(len(probs)):
-            doc_labels = []
-            for j, tid in enumerate(topic_ids):
-                if j < probs.shape[1] and probs[i, j] >= threshold:
-                    doc_labels.append(labels[tid])
-            if not doc_labels and topics[i] != -1:
-                doc_labels = [labels.get(topics[i], f'T{topics[i]}')]
-            multi.append(doc_labels)
-
+        for i, main in enumerate(topics):
+            doc = [labels[main]] if main != -1 and main in labels else []
+            if probs is not None and probs.ndim == 2:
+                for j in np.argsort(-probs[i]):
+                    if probs[i, j] < threshold:
+                        break
+                    if j != main and j in labels:
+                        doc.append(labels[j])
+            multi.append(doc)
         return multi
 
     def get_topic_summary(self) -> pd.DataFrame:

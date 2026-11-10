@@ -27,6 +27,8 @@ nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
 
 from .preprocessing import load_and_clean, classify_ideology, classify_region
+from .model_config import DEFAULT_EMBEDDING_MODEL, EMBEDDING_MODELS
+from .text_cleaning import MODEL_TEXT_COLUMN, add_model_text
 from .topic_modeling import TopicModeler, TopicModelConfig
 from .statistics import compute_all_statistics
 from .export import export_dashboard_json, export_processed_csv
@@ -55,16 +57,17 @@ def analyze(
         (df com colunas de tópico, dict de estatísticas para o dashboard)
     """
     _cb = progress_callback or (lambda *a: None)
-    df = classify_region(classify_ideology(df))
+    df = add_model_text(classify_region(classify_ideology(df)))
 
     modeler = TopicModeler(config)
-    results = modeler.fit(df['Discurso'], progress_callback=_cb, embeddings=embeddings)
+    results = modeler.fit(df[MODEL_TEXT_COLUMN], progress_callback=_cb, embeddings=embeddings)
 
     topics = results['topics']
     topic_labels = results['topic_labels']
     df = df.copy()
     df['Topico'] = topics
     df['Topico_label'] = df['Topico'].map(topic_labels)
+    df['Topico_reatribuido'] = results['reassigned']
     df['Topicos_multi'] = ['; '.join(labels) for labels in results['multi_labels']]
 
     _cb('statistics', 0.0)
@@ -72,12 +75,22 @@ def analyze(
         df, topics=topics, topic_labels=topic_labels, period=period, plenary_totals=plenary_totals,
     )
 
-    n_noise = int((topics == -1).sum())
+    n = len(df)
+    pct = lambda k: round(k / n * 100, 1) if n else 0.0
+    n_noise = int((topics == -1).sum())             # ruído que sobrou (0 com reduce_outliers)
+    n_reassigned = int(results['reassigned'].sum())
+    n_multi = sum(len(m) > 1 for m in results['multi_labels'])
     stats['modelo'] = {
-        'n_discursos': len(df),
+        'n_discursos': n,
         'n_topicos': len([t for t in topic_labels if t != -1]),
         'n_ruido': n_noise,
-        'pct_ruido': round(n_noise / len(df) * 100, 1) if len(df) else 0.0,
+        'pct_ruido': pct(n_noise),
+        'n_ruido_original': results['n_noise'],     # o que o HDBSCAN deixou sem tópico
+        'pct_ruido_original': pct(results['n_noise']),
+        'n_reatribuidos': n_reassigned,
+        'pct_reatribuidos': pct(n_reassigned),
+        'n_multi_label': n_multi,
+        'pct_multi_label': pct(n_multi),
     }
     stats['metodologia'] = modeler.methodology()
     return df, stats
@@ -90,6 +103,7 @@ def run_pipeline(
     threshold: float = 0.1,
     cache_dir: str = '.cache',
     encoding: str = 'utf-8-sig',
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL,
 ):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -99,6 +113,7 @@ def run_pipeline(
     print(f"Discursos com texto e data válida: {len(df)}")
 
     config = TopicModelConfig(
+        embedding_model=embedding_model,
         nr_topics=nr_topics,
         multi_label_threshold=threshold,
         cache_dir=Path(cache_dir) if cache_dir else None,
@@ -107,7 +122,9 @@ def run_pipeline(
 
     m = stats['modelo']
     print(f"\nTópicos encontrados: {m['n_topicos']}")
-    print(f"Documentos em ruído: {m['n_ruido']} ({m['pct_ruido']}%)")
+    print(f"Ruído do HDBSCAN: {m['n_ruido_original']} ({m['pct_ruido_original']}%), "
+          f"reatribuídos ao tópico mais próximo: {m['n_reatribuidos']}")
+    print(f"Discursos com mais de um tópico (multi-label): {m['n_multi_label']} ({m['pct_multi_label']}%)")
     print("\nTop tópicos:")
     for label, count in df[df['Topico'] != -1]['Topico_label'].value_counts().head(10).items():
         print(f"  {label}: {count} discursos")
@@ -135,6 +152,8 @@ def main():
     parser.add_argument('--threshold', type=float, default=0.1, help='Threshold multi-label')
     parser.add_argument('--cache-dir', default='.cache', help='Cache de embeddings')
     parser.add_argument('--encoding', default='utf-8-sig', help='Encoding do CSV')
+    parser.add_argument('--embedding-model', default=DEFAULT_EMBEDDING_MODEL, choices=list(EMBEDDING_MODELS),
+                        help='Modelo de embedding')
     args = parser.parse_args()
 
     run_pipeline(
@@ -144,6 +163,7 @@ def main():
         threshold=args.threshold,
         cache_dir=args.cache_dir,
         encoding=args.encoding,
+        embedding_model=args.embedding_model,
     )
 
 

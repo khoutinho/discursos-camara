@@ -18,7 +18,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from ..pipeline.model_config import EMBEDDING_MODELS, TopicModelConfig, methodology
+from ..pipeline.model_config import DEFAULT_EMBEDDING_MODEL, EMBEDDING_MODELS, TopicModelConfig, methodology
 from . import db, jobs
 
 FINAL_STATUSES = {"done", "interrupted"}
@@ -206,8 +206,8 @@ async def import_csv(file: UploadFile = File(...), name: str | None = Form(None)
 
 class RunRequest(BaseModel):
     dataset_id: int
-    embedding_model: str = TopicModelConfig.embedding_model
-    nr_topics: int | None = Field(default=20, ge=2, le=200)
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL
+    nr_topics: int | None = Field(default=None, ge=2, le=200)  # None = sem redução (todos os tópicos do HDBSCAN)
     threshold: float = Field(default=TopicModelConfig.multi_label_threshold, ge=0.0, le=1.0)
 
     @field_validator("embedding_model")
@@ -222,7 +222,10 @@ class RunRequest(BaseModel):
 def options():
     """Valores padrão e opções dos controles da análise."""
     return {
-        "embedding_models": [{"id": k, "descricao": v} for k, v in EMBEDDING_MODELS.items()],
+        "embedding_models": [
+            {"id": k, "label": s.label, "descricao": s.descricao, "min_cluster_size": s.min_cluster_size}
+            for k, s in EMBEDDING_MODELS.items()
+        ],
         "defaults": RunRequest.model_construct(dataset_id=0).model_dump(exclude={"dataset_id"}),
         "min_docs": jobs.MIN_DOCS,
     }
@@ -230,18 +233,33 @@ def options():
 
 @app.get("/api/methodology")
 def methodology_table(
-    embedding_model: str = TopicModelConfig.embedding_model,
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL,
     nr_topics: int = 20,
     sem_reducao: bool = False,
     threshold: float = TopicModelConfig.multi_label_threshold,
 ):
     """Tabela de parâmetros para os valores escolhidos (painel de documentação)."""
+    if embedding_model not in EMBEDDING_MODELS:
+        raise HTTPException(400, f"modelo desconhecido; opções: {', '.join(EMBEDDING_MODELS)}")
     cfg = TopicModelConfig(
         embedding_model=embedding_model,
         nr_topics=None if sem_reducao else nr_topics,
         multi_label_threshold=threshold,
     )
     return methodology(cfg)
+
+
+@app.get("/api/estimate")
+def estimate(dataset_id: int, embedding_model: str = DEFAULT_EMBEDDING_MODEL):
+    """Tempo estimado da análise nesta máquina (GPU ou CPU), descontando embeddings já guardados."""
+    if embedding_model not in EMBEDDING_MODELS:
+        raise HTTPException(400, f"modelo desconhecido; opções: {', '.join(EMBEDDING_MODELS)}")
+    conn = db.connect()
+    try:
+        _require(conn, dataset_id)
+        return jobs.estimate(conn, dataset_id, embedding_model)
+    finally:
+        conn.close()
 
 
 @app.get("/api/runs")

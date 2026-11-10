@@ -170,6 +170,20 @@ _STOPWORDS_PARLAMENTAR = {
     'relacao', 'relação', 'problema', 'problemas',
     'mandato', 'pauta', 'aprovacao', 'aprovação',
     'parlamento', 'plenaria', 'plenário',
+
+    # Apareceram nos rótulos sem dizer nada sobre o tema (testes de nov/2026).
+    # Verbos e advérbios já saem pelo filtro de classe gramatical (vocabulary.py);
+    # ficam aqui também para não depender só do etiquetador.
+    'fala', 'falas', 'falando', 'aprovar', 'aprovamos', 'infelizmente', 'existe', 'precisa',
+    'votar', 'autoria', 'campanha', 'bom', 'boa', 'lá', 'la', 'junto', 'parabéns', 'parabens',
+    'proposição', 'proposicao', 'proposições', 'proposicoes', 'discursos', 'relatório', 'relatorio',
+    'deverá', 'devera', 'agenda', 'honra', 'fato', 'fatos', 'mesmo', 'mesma', 'mesmos', 'mesmas',
+    'gente', 'presentes', 'presença', 'presenca', 'presidência', 'presidencia',
+    'cumprimento', 'cumprimentos', 'discussão', 'discussao', 'debate', 'preocupação', 'preocupacao',
+    # particípios genéricos (os particípios temáticos, como "assassinada", ficam)
+    'feito', 'feita', 'feitos', 'feitas', 'sido', 'dito', 'dita', 'tido', 'dado', 'dada',
+    'visto', 'vista', 'chamado', 'chamada', 'colocado', 'colocada', 'lido', 'considerado', 'considerada',
+    'aprovado', 'aprovada', 'aprovados', 'aprovadas', 'divulgado', 'divulgados', 'aproveito',
 }
 
 # Keywords de busca também são stopwords do BERTopic — aparecem em 100% do

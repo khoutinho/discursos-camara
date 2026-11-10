@@ -141,7 +141,8 @@ def compute_all_statistics(
     # ── Vocabulário por espectro ──
     stats['vocabulario'] = {}
     for esp in espectros:
-        textos = df[df['Espectro'] == esp]['Discurso'].dropna()
+        col = 'Texto_modelo' if 'Texto_modelo' in df.columns else 'Discurso'  # texto limpo, se houver
+        textos = df[df['Espectro'] == esp][col].dropna()
         stats['vocabulario'][esp] = _top_words(textos)
 
     # ── Análises por tópico (se disponível) ──

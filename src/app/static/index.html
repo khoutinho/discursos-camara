@@ -406,9 +406,10 @@
               <label for="nr-topics">
                 Número de tópicos
                 <span class="help" tabindex="0">?<span class="tip" role="tooltip">
-                  O HDBSCAN encontra os tópicos sozinho, em geral dezenas, muitos parecidos entre si. Este número
-                  pede ao BERTopic que una os mais parecidos até sobrarem no máximo esse tanto. Se ele achar menos,
-                  mantém os que achou. Mudar este valor não recalcula os embeddings.
+                  O HDBSCAN encontra os tópicos sozinho; a quantidade depende da coleta. Este número pede ao
+                  BERTopic que una os mais parecidos até sobrarem no máximo esse tanto. Recomendado: sem redução.
+                  Ao unir tópicos, o rótulo fica só com as palavras em comum (ex.: "violência | segurança") e os
+                  subtemas específicos somem. Mudar este valor não recalcula os embeddings.
                 </span></span>
               </label>
               <input type="number" id="nr-topics" min="2" max="200" value="20" />
@@ -427,6 +428,7 @@
               </label>
               <select id="embedding-model"></select>
               <p class="hint" id="model-desc"></p>
+              <div id="model-estimate" class="msg" hidden></div>
             </div>
           </div>
           <div class="field">
@@ -557,7 +559,8 @@
       }
 
       function paramsText(p) {
-        const model = p.embedding_model.includes("mpnet") ? "mpnet" : "MiniLM";
+        const known = { minilm: "MiniLM", "bge-m3": "bge-m3" };
+        const model = known[p.embedding_model] || (p.embedding_model.includes("mpnet") ? "mpnet" : "MiniLM (antigo)");
         const nr = p.nr_topics == null ? "sem redução" : `${p.nr_topics} tópicos`;
         return `${nr} · ${model} · threshold ${p.threshold}`;
       }
@@ -736,10 +739,11 @@
         options = await api("/api/options");
         const select = $("embedding-model");
         select.replaceChildren(
-          ...options.embedding_models.map((m) => el("option", { value: m.id }, m.id)),
+          ...options.embedding_models.map((m) => el("option", { value: m.id }, m.label)),
         );
         select.value = options.defaults.embedding_model;
-        $("nr-topics").value = options.defaults.nr_topics;
+        $("no-reduce").checked = options.defaults.nr_topics == null;
+        $("nr-topics").value = options.defaults.nr_topics ?? 20;
         $("threshold").value = options.defaults.threshold;
         syncForm();
       }
@@ -758,6 +762,49 @@
         const model = options?.embedding_models.find((m) => m.id === $("embedding-model").value);
         $("model-desc").textContent = model?.descricao || "";
         if ($("doc-panel").open) loadDocs();
+        loadEstimate();
+      }
+
+      // estimativa de tempo: GPU/CPU desta máquina e embeddings já guardados
+      let estimateSeq = 0;
+      async function loadEstimate() {
+        const box = $("model-estimate");
+        if (!configDataset || !options) return;
+        const seq = ++estimateSeq;
+        const model = $("embedding-model").value;
+        let e;
+        try {
+          e = await api(`/api/estimate?${new URLSearchParams({ dataset_id: configDataset.id, embedding_model: model })}`);
+        } catch {
+          box.hidden = true;
+          return;
+        }
+        if (seq !== estimateSeq) return; // o usuário trocou de modelo enquanto carregava
+        const device = e.gpu ? `GPU detectada: ${e.gpu}` : "Sem GPU detectada (o cálculo roda na CPU)";
+        const cached = e.n_cached >= e.n_docs
+          ? " Os embeddings deste dataset já estão guardados."
+          : e.n_cached ? ` ${fmt(e.n_cached)} discursos já têm embeddings guardados.` : "";
+        const basis = e.fonte === "medido"
+          ? "Com base na velocidade medida neste computador."
+          : "Estimativa de referência; fica mais precisa depois da primeira análise neste computador.";
+        box.replaceChildren(
+          el("strong", {}, `Tempo estimado: ${duration(e.total_seconds)}`),
+          ` para ${fmt(e.n_docs)} discursos.${cached}`,
+          el("br"),
+          `${device}. ${basis}`,
+          ...(e.lento && e.n_cached < e.n_docs
+            ? [el("br"), "Este modelo é muito lento sem GPU; considere o MiniLM."]
+            : []),
+        );
+        box.classList.toggle("warn", e.lento && e.n_cached < e.n_docs);
+        box.hidden = false;
+      }
+
+      function duration(sec) {
+        if (sec < 60) return "menos de 1 min";
+        const min = Math.round(sec / 60);
+        if (min < 60) return `~${min} min`;
+        return `~${Math.floor(min / 60)} h ${min % 60} min`;
       }
       ["nr-topics", "no-reduce", "embedding-model", "threshold"].forEach((id) =>
         $(id).addEventListener("input", syncForm),
@@ -797,6 +844,7 @@
             `Este dataset tem ${ds.fetched} discursos; a análise precisa de ao menos ${options.min_docs}.`));
         }
         $("panel-config").hidden = false;
+        loadEstimate();
         scrollTo($("panel-config"));
       }
 

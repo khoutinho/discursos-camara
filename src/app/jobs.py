@@ -103,8 +103,9 @@ def _run_pipeline(run_id: int) -> None:
         # heavy imports (torch, BERTopic) only when an analysis actually runs
         from ..pipeline.export import export_dashboard_json, export_processed_csv
         from ..pipeline.preprocessing import clean
+        from ..pipeline.model_config import TopicModelConfig
         from ..pipeline.run import analyze
-        from ..pipeline.topic_modeling import TopicModelConfig
+        from ..pipeline.text_cleaning import add_model_text
 
         run = db.get_run(conn, run_id)
         params = run["params"]
@@ -113,6 +114,7 @@ def _run_pipeline(run_id: int) -> None:
         db.update_run(conn, run_id, status="running")
 
         df = clean(db.dataset_dataframe(conn, run["dataset_id"], with_id=True)).reset_index(drop=True)
+        df = add_model_text(df)
         if len(df) < MIN_DOCS:
             raise PipelineError(
                 f"O dataset tem {len(df)} discursos com texto e data válida; são necessários ao menos {MIN_DOCS} "
@@ -216,24 +218,80 @@ def _plenary_totals(conn, run_id: int, inicio: date, fim: date) -> dict[str, int
 
 def _embeddings_for(conn, run_id: int, df, model: str):
     """Embeddings na ordem de df: usa o cache do banco e calcula só os que faltam."""
+    import time
+
     import numpy as np
-    from ..pipeline.topic_modeling import iter_encode
+    from ..pipeline.model_config import embedding_cache_key
+    from ..pipeline.text_cleaning import MODEL_TEXT_COLUMN
+    from ..pipeline.topic_modeling import device_info, iter_encode
 
     ids = df["speech_id"].tolist()
-    cached = db.load_embeddings(conn, ids, model)
+    cache_key = embedding_cache_key(model)
+    cached = db.load_embeddings(conn, ids, cache_key)
     missing = [i for i, sid in enumerate(ids) if sid not in cached]
 
     start, end = STAGE_PROGRESS["embeddings"], STAGE_PROGRESS["clustering"]
     db.update_run(conn, run_id, stage="embeddings", progress=start + (end - start) * (1 - len(missing) / len(ids)))
     if missing:
-        texts = df["Discurso"].iloc[missing].tolist()
+        texts = df[MODEL_TEXT_COLUMN].iloc[missing].tolist()
+        t0 = time.monotonic()
         for offset, vectors in iter_encode(texts, model):
             chunk_ids = [ids[i] for i in missing[offset:offset + len(vectors)]]
-            db.save_embeddings(conn, chunk_ids, model, vectors)
+            db.save_embeddings(conn, chunk_ids, cache_key, vectors)
             cached.update(zip(chunk_ids, vectors))
             done = len(ids) - len(missing) + offset + len(vectors)
             db.update_run(conn, run_id, progress=start + (end - start) * done / len(ids))
+        # velocidade desta máquina, para a próxima estimativa (amostras pequenas pesam demais o carregamento)
+        if len(missing) >= SPEED_MIN_DOCS:
+            elapsed = time.monotonic() - t0
+            db.save_embedding_speed(conn, model, device_info()["device"], elapsed / len(missing), len(missing))
     return np.vstack([cached[sid] for sid in ids])
+
+
+# tempo das etapas além dos embeddings (spaCy, UMAP, HDBSCAN, rótulos, estatísticas), medido em nov/2026
+OTHER_STAGES_SEC = 20.0
+OTHER_STAGES_SEC_PER_DOC = 0.02
+SPEED_MIN_DOCS = 50  # a velocidade só é guardada se medida em pelo menos tantos discursos
+
+_device: dict | None = None
+
+
+def device() -> dict:
+    """GPU disponível? (importa o PyTorch na primeira chamada, então é guardado.)"""
+    global _device
+    if _device is None:
+        from ..pipeline.topic_modeling import device_info
+        _device = device_info()
+    return _device
+
+
+def estimate(conn, dataset_id: int, model: str) -> dict:
+    """Tempo estimado da análise com este modelo, nesta máquina."""
+    from ..pipeline.model_config import EMBEDDING_MODELS, embedding_cache_key
+
+    spec = EMBEDDING_MODELS[model]
+    dev = device()
+    n_docs = db.get_dataset(conn, dataset_id)["fetched"]
+    n_cached = min(db.count_embeddings(conn, dataset_id, embedding_cache_key(model)), n_docs)
+
+    measured = db.get_embedding_speed(conn, model, dev["device"])
+    if measured:
+        sec_per_doc, source = measured["sec_per_doc"], "medido"
+    else:
+        sec_per_doc = spec.ref_sec_per_doc_gpu if dev["device"] == "cuda" else spec.ref_sec_per_doc_cpu
+        source = "referencia"
+
+    embed = (n_docs - n_cached) * sec_per_doc
+    other = OTHER_STAGES_SEC + OTHER_STAGES_SEC_PER_DOC * n_docs
+    return {
+        **dev,
+        "n_docs": n_docs,
+        "n_cached": n_cached,
+        "embed_seconds": round(embed),
+        "total_seconds": round(embed + other),
+        "fonte": source,
+        "lento": dev["device"] == "cpu" and spec.ref_sec_per_doc_cpu >= 1.0,
+    }
 
 
 def _to_br_date(iso: str) -> str:
