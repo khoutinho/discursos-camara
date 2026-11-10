@@ -926,6 +926,9 @@
       }
 
       // ── histórico ──
+      const LISTS_POLL_MS = 3000;
+      let listsTimer = null;
+
       async function refreshLists() {
         const [datasets, runs] = await Promise.all([api("/api/datasets"), api("/api/runs")]);
         const runsOf = (id) => runs.filter((r) => r.dataset_id === id);
@@ -968,6 +971,12 @@
             ),
           ),
         );
+
+        // while a scrape is running, keep the downloaded counts in the table current
+        clearTimeout(listsTimer);
+        if (datasets.some((d) => d.running || d.status === "pending" || d.status === "running")) {
+          listsTimer = setTimeout(() => refreshLists().catch(() => {}), LISTS_POLL_MS);
+        }
 
         // reattach to work that is still running (e.g. after reloading the page)
         const runningDs = datasets.find((d) => d.running);
