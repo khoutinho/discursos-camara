@@ -78,9 +78,33 @@ def create_scrape(req: ScrapeRequest):
             conn, name, req.keywords, req.data_inicio.isoformat(), req.data_fim.isoformat(),
         )
         jobs.start_scrape(dataset_id)
-        return _with_running(db.get_dataset(conn, dataset_id))
+        return {**_with_running(db.get_dataset(conn, dataset_id)), "avisos": _accent_warnings(req.keywords)}
     finally:
         conn.close()
+
+
+def _accent_warnings(keywords: list[str]) -> list[dict]:
+    """
+    Avisos para palavras sem acento que têm forma acentuada.
+
+    A coleta segue do jeito que foi pedida; o aviso é para quem chama a API direto, sem o formulário.
+    """
+    avisos = []
+    for kw in keywords:
+        for word in dict.fromkeys(re.findall(r"[^\W\d_]+", kw)):
+            if not re.fullmatch(r"[A-Za-z]{2,}", word) or not (forms := accented_forms(word)):
+                continue
+            accented = [f for f in forms if f != word.lower()]
+            avisos.append({
+                "keyword": kw,
+                "palavra": word,
+                "formas": forms,
+                "mensagem": (
+                    f'"{word}": a busca sem acento só encontra discursos de 2023 em diante. '
+                    + (f"Usar {accented[0]}?" if len(forms) == 1 else f"Pode ser {' ou '.join(forms)}.")
+                ),
+            })
+    return avisos
 
 
 @app.get("/api/datasets/{dataset_id}")
