@@ -14,11 +14,12 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..pipeline.model_config import DEFAULT_EMBEDDING_MODEL, EMBEDDING_MODELS, TopicModelConfig, methodology
+from ..scraper.accents import accented_forms
 from . import db, jobs
 
 FINAL_STATUSES = {"done", "interrupted"}
@@ -229,6 +230,16 @@ def options():
         "defaults": RunRequest.model_construct(dataset_id=0).model_dump(exclude={"dataset_id"}),
         "min_docs": jobs.MIN_DOCS,
     }
+
+
+@app.get("/api/accents")
+def accents(words: list[str] = Query(default=[], max_length=200)):
+    """
+    Formas acentuadas das palavras digitadas sem acento nas keywords.
+
+    Só volta as palavras que têm forma acentuada: {"feminicidio": ["feminicídio"], "pais": ["país", "pais"]}.
+    """
+    return {w: forms for w in dict.fromkeys(words) if (forms := accented_forms(w))}
 
 
 @app.get("/api/methodology")
