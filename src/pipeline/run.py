@@ -12,6 +12,7 @@ Opções:
     --threshold     Threshold de probabilidade pra multi-label (default: 0.1)
     --cache-dir     Diretório pra cache de embeddings (default: .cache/)
     --encoding      Encoding do CSV (default: utf-8-sig)
+    --keywords      Keywords da busca, separadas por vírgula (tabela keyword × tópico)
 """
 
 import argparse
@@ -41,6 +42,7 @@ def analyze(
     progress_callback=None,
     period: tuple[date, date] | None = None,
     plenary_totals: dict[str, int | None] | None = None,
+    keywords: list[str] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """
     Classificação ideológica/regional → tópicos → estatísticas.
@@ -52,6 +54,7 @@ def analyze(
         progress_callback: Callable(stage: str, pct: float).
         period: período coletado (meses sem discursos contam como zero nas tendências).
         plenary_totals: {'YYYY-MM': total do Plenário}; None = tendências só em contagem.
+        keywords: keywords da busca (tabela keyword × tópico, com 2+ keywords).
 
     Returns:
         (df com colunas de tópico, dict de estatísticas para o dashboard)
@@ -73,6 +76,7 @@ def analyze(
     _cb('statistics', 0.0)
     stats = compute_all_statistics(
         df, topics=topics, topic_labels=topic_labels, period=period, plenary_totals=plenary_totals,
+        keywords=keywords,
     )
 
     n = len(df)
@@ -104,6 +108,7 @@ def run_pipeline(
     cache_dir: str = '.cache',
     encoding: str = 'utf-8-sig',
     embedding_model: str = DEFAULT_EMBEDDING_MODEL,
+    keywords: list[str] | None = None,
 ):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -118,7 +123,7 @@ def run_pipeline(
         multi_label_threshold=threshold,
         cache_dir=Path(cache_dir) if cache_dir else None,
     )
-    df, stats = analyze(df, config, progress_callback=lambda stage, _pct: print(f"→ {stage}"))
+    df, stats = analyze(df, config, progress_callback=lambda stage, _pct: print(f"→ {stage}"), keywords=keywords)
 
     m = stats['modelo']
     print(f"\nTópicos encontrados: {m['n_topicos']}")
@@ -154,6 +159,8 @@ def main():
     parser.add_argument('--encoding', default='utf-8-sig', help='Encoding do CSV')
     parser.add_argument('--embedding-model', default=DEFAULT_EMBEDDING_MODEL, choices=list(EMBEDDING_MODELS),
                         help='Modelo de embedding')
+    parser.add_argument('--keywords', default=None,
+                        help='Keywords da busca, separadas por vírgula (tabela keyword × tópico)')
     args = parser.parse_args()
 
     run_pipeline(
@@ -164,6 +171,7 @@ def main():
         cache_dir=args.cache_dir,
         encoding=args.encoding,
         embedding_model=args.embedding_model,
+        keywords=args.keywords.split(',') if args.keywords else None,
     )
 
 

@@ -2,6 +2,7 @@
 Análises estatísticas: tendências (Mann-Kendall), Pearson, cosseno, CV, e análises por tópico.
 """
 
+import re
 from collections import Counter
 from datetime import date
 
@@ -12,6 +13,7 @@ from scipy.stats import pearsonr
 
 from .config import STOPWORDS_DOMAIN
 from .trends import MIN_YEARS_ANNUAL, complete_years, compute_trends
+from .vocabulary import fold, ubiquitous_words
 
 
 def compute_all_statistics(
@@ -20,6 +22,7 @@ def compute_all_statistics(
     topic_labels: dict[int, str] | None = None,
     period: tuple[date, date] | None = None,
     plenary_totals: dict[str, int | None] | None = None,
+    keywords: list[str] | None = None,
 ) -> dict:
     """
     Calcula todas as análises estatísticas.
@@ -30,6 +33,7 @@ def compute_all_statistics(
         topic_labels: Mapeamento topic_id → label.
         period: período coletado; None = da primeira à última data dos discursos.
         plenary_totals: {'YYYY-MM': total do Plenário} para as tendências em proporção.
+        keywords: keywords da busca (tabela keyword × tópico, com 2+ keywords).
 
     Returns:
         dict com todas as análises prontas pra exportação.
@@ -140,10 +144,11 @@ def compute_all_statistics(
 
     # ── Vocabulário por espectro ──
     stats['vocabulario'] = {}
+    col = 'Texto_modelo' if 'Texto_modelo' in df.columns else 'Discurso'  # texto limpo, se houver
+    excluded = STOPWORDS_DOMAIN | ubiquitous_words(df[col].dropna().tolist(), STOPWORDS_DOMAIN)
     for esp in espectros:
-        col = 'Texto_modelo' if 'Texto_modelo' in df.columns else 'Discurso'  # texto limpo, se houver
         textos = df[df['Espectro'] == esp][col].dropna()
-        stats['vocabulario'][esp] = _top_words(textos)
+        stats['vocabulario'][esp] = _top_words(textos, excluded)
 
     # ── Análises por tópico (se disponível) ──
     if topics is not None and topic_labels is not None:
@@ -151,20 +156,48 @@ def compute_all_statistics(
         df_with_topics['Topico'] = topics
         df_with_topics['Topico_label'] = df_with_topics['Topico'].map(topic_labels)
         stats.update(_topic_statistics(df_with_topics, topic_labels, year_range))
+        stats['keywords_por_topico'] = keywords_by_topic(df_with_topics, keywords, topic_labels)
 
     return stats
 
 
-def _top_words(texts: pd.Series, n: int = 25) -> list[dict]:
-    """Top N palavras de uma série de textos, excluindo stopwords de domínio."""
-    import re
+def _top_words(texts: pd.Series, excluded: set[str], n: int = 25) -> list[dict]:
+    """Top N palavras de uma série de textos, sem as palavras em excluded."""
     counter = Counter()
     for t in texts:
         if pd.isna(t):
             continue
         words = re.findall(r'\b[a-záàâãéèêíïóôõúüç]{4,}\b', t.lower())
-        counter.update(w for w in words if w not in STOPWORDS_DOMAIN)
+        counter.update(w for w in words if w not in excluded)
     return [{'word': w, 'count': c} for w, c in counter.most_common(n)]
+
+
+def keyword_pattern(keyword: str) -> re.Pattern:
+    """Regex de uma keyword no texto já passado por fold(): sem acento, plural opcional, espaços flexíveis."""
+    words = fold(keyword).split()
+    body = r'\s+'.join(re.escape(w) + r'(?:e?s)?' for w in words)
+    return re.compile(rf'(?<!\w){body}(?!\w)')
+
+
+def keywords_by_topic(df: pd.DataFrame, keywords: list[str], topic_labels: dict[int, str]) -> dict | None:
+    """
+    % dos discursos de cada tópico (principal) que contêm cada keyword, no texto original.
+
+    Só faz sentido com 2+ keywords: com uma, ela está em todos os discursos.
+    """
+    keywords = [k for k in dict.fromkeys(k.strip() for k in keywords or []) if k]
+    if len(keywords) < 2 or 'Discurso' not in df.columns:
+        return None
+    texts = df['Discurso'].fillna('').map(fold)
+    has = pd.DataFrame({k: texts.str.contains(keyword_pattern(k)) for k in keywords}, index=df.index)
+
+    def pcts(mask) -> dict:
+        return {k: round(float(has.loc[mask, k].mean() * 100), 1) for k in keywords}
+
+    rows = []
+    for tid, n in df.loc[df['Topico'] != -1, 'Topico'].value_counts().items():
+        rows.append({'topico': topic_labels.get(tid, str(tid)), 'n': int(n), 'pct': pcts(df['Topico'] == tid)})
+    return {'keywords': keywords, 'geral': pcts(slice(None)), 'topicos': rows}
 
 
 def _topic_statistics(

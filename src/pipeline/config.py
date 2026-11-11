@@ -180,20 +180,18 @@ _STOPWORDS_PARLAMENTAR = {
     'deverá', 'devera', 'agenda', 'honra', 'fato', 'fatos', 'mesmo', 'mesma', 'mesmos', 'mesmas',
     'gente', 'presentes', 'presença', 'presenca', 'presidência', 'presidencia',
     'cumprimento', 'cumprimentos', 'discussão', 'discussao', 'debate', 'preocupação', 'preocupacao',
+    # "a favor", "em favor", "por favor" (votações); "convido" e "pronunciamento" são da condução da sessão
+    'favor', 'convido', 'convida', 'pronunciamento', 'pronunciamentos',
     # particípios genéricos (os particípios temáticos, como "assassinada", ficam)
     'feito', 'feita', 'feitos', 'feitas', 'sido', 'dito', 'dita', 'tido', 'dado', 'dada',
     'visto', 'vista', 'chamado', 'chamada', 'colocado', 'colocada', 'lido', 'considerado', 'considerada',
     'aprovado', 'aprovada', 'aprovados', 'aprovadas', 'divulgado', 'divulgados', 'aproveito',
 }
 
-# Keywords de busca também são stopwords do BERTopic — aparecem em 100% do
-# corpus, então não diferenciam nenhum tópico.
-_STOPWORDS_KEYWORDS = set()
-for kw in KEYWORDS:
-    _STOPWORDS_KEYWORDS.update(kw.split())
-
+# As keywords da busca não entram aqui: o que sai do vocabulário é o que aparece em quase todos os
+# discursos (vocabulary.ubiquitous_words), o que cobre a keyword de uma busca com um termo só sem
+# esconder as keywords de uma busca com vários termos.
 STOPWORDS_DOMAIN = (
     set(stopwords.words('portuguese'))
     | _STOPWORDS_PARLAMENTAR
-    | _STOPWORDS_KEYWORDS
 )

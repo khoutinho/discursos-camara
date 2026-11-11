@@ -12,13 +12,64 @@ o vocabulário é filtrado por classe gramatical (spaCy):
 
 A classe de uma palavra é a mais comum dela no corpus analisado: "fala" aparece mais como
 verbo ("ela fala") do que como substantivo ("a fala"), então sai.
+
+Palavras presentes na maioria dos discursos também saem (ubiquitous_words): aparecem em quase
+todos os tópicos e não diferenciam nenhum. Em geral são a própria keyword de uma busca com um termo
+só e o vocabulário que a acompanha; numa busca com várias keywords, cada uma aparece em parte dos
+discursos e continua podendo aparecer nos rótulos.
 """
 
+import re
+import unicodedata
 from collections import Counter, defaultdict
 
 SPACY_MODEL = 'pt_core_news_sm'
 CONTENT_POS = {'NOUN', 'PROPN', 'ADJ', 'PART'}  # PART = particípio (VERB/AUX com VerbForm=Part)
 MIN_CONTENT_SHARE = 0.5  # palavra fica se ≥50% das ocorrências forem de uma classe de conteúdo
+
+TOKEN_PATTERN = r'(?u)\b[^\W\d_]{2,}\b'  # só palavras com letras (sem números como "2023", "16")
+# palavra em ≥50% dos discursos sai do vocabulário. Na coleta "feminicídio" (nov/2026), 90% tirava só
+# "feminicídio" e os rótulos se enchiam de "violência mulher" (72% e 84% dos discursos); entre 90% e 50%
+# só saem essas; "crime" e "vida" (40%) ficam.
+UBIQUITOUS_SHARE = 0.5
+
+
+def fold(text: str) -> str:
+    """Minúsculas e sem acento ("Feminicídio" → "feminicidio")."""
+    nfkd = unicodedata.normalize('NFKD', text.lower())
+    return ''.join(c for c in nfkd if not unicodedata.combining(c))
+
+
+def _variant_key(word: str) -> str:
+    """Mesma chave para formas com/sem acento e singular/plural em -s ("feminicídios" → "feminicidio")."""
+    w = fold(word)
+    return w[:-1] if w.endswith('s') and len(w) > 3 else w
+
+
+def ubiquitous_words(documents: list[str], ignore: set[str] = frozenset(),
+                     share: float = UBIQUITOUS_SHARE) -> set[str]:
+    """
+    Palavras (minúsculas) presentes em ≥ share dos discursos, contando juntas as variações de acento
+    e plural em -s: com "feminicídio" ou "feminicídios" na maioria dos discursos, saem
+    "feminicídio", "feminicidio", "feminicídios"...
+
+    ignore: palavras que já são stopwords; ficam fora da contagem para não arrastarem palavras de
+    conteúdo que só diferem pelo acento ("para" → "pará").
+    """
+    if not documents:
+        return set()
+    token = re.compile(TOKEN_PATTERN)
+    df = Counter()                       # discursos por variante
+    forms = defaultdict(set)             # variante → formas vistas no corpus
+    for doc in documents:
+        words = set(token.findall(doc.lower())) - ignore
+        keys = set()
+        for w in words:
+            k = _variant_key(w)
+            forms[k].add(w)
+            keys.add(k)
+        df.update(keys)
+    return {w for k, n in df.items() if n / len(documents) >= share for w in forms[k]}
 
 _nlp = None
 

@@ -822,6 +822,20 @@
               <div class="card-title">Evolução temporal dos tópicos (%)</div>
               <canvas id="ch-topico-ano"></canvas>
             </div>
+            <div class="card col-span-2" id="card-kw-topico" style="display: none">
+              <div class="card-title">Keywords por tópico</div>
+              <p class="card-desc">
+                % dos discursos de cada tópico (tópico principal) que contêm cada keyword da busca, no texto
+                completo, sem diferenciar acento e plural. Um discurso pode conter mais de uma keyword, então
+                as linhas não somam 100%. Destacadas as células bem acima da média do corpus (primeira linha).
+              </p>
+              <div class="tbl-wrap">
+                <table>
+                  <thead><tr id="tbl-kw-head"></tr></thead>
+                  <tbody id="tbl-kw-body"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1378,6 +1392,41 @@
           },
           { scales: pctScales() },
         );
+
+        renderKeywordsTopico();
+      }
+
+      // keyword × topic table (only for searches with 2+ keywords)
+      function renderKeywordsTopico() {
+        const kt = D.keywords_por_topico;
+        if (!kt || !kt.topicos.length) return;
+        document.getElementById("card-kw-topico").style.display = "";
+        document.getElementById("tbl-kw-head").innerHTML =
+          `<th>Tópico</th><th class="num">Discursos</th>` +
+          kt.keywords.map((k) => `<th class="num" title="${esc(k)}">${esc(short(k, 18))}</th>`).join("");
+        // highlight: cell at least 1.5× the corpus share and 10 points above it
+        const cell = (k, v) => {
+          const base = kt.geral[k];
+          const hi = v >= base * 1.5 && v - base >= 10;
+          const bg = hi ? `rgba(0,229,176,${Math.min((v - base) / 60, 1) * 0.4 + 0.1})` : "";
+          return `<td class="num" style="background:${bg}">${v.toFixed(0)}%</td>`;
+        };
+        const total = kt.topicos.reduce((s, t) => s + t.n, 0);
+        const geral =
+          `<tr><td><strong>Todos os discursos</strong></td><td class="num">${total.toLocaleString("pt-BR")}</td>` +
+          kt.keywords.map((k) => `<td class="num"><strong>${kt.geral[k].toFixed(0)}%</strong></td>`).join("") +
+          `</tr>`;
+        document.getElementById("tbl-kw-body").innerHTML =
+          geral +
+          kt.topicos
+            .map(
+              (t) =>
+                `<tr><td title="${esc(t.topico)}">${esc(short(t.topico, 60))}</td>` +
+                `<td class="num">${t.n.toLocaleString("pt-BR")}</td>` +
+                kt.keywords.map((k) => cell(k, t.pct[k])).join("") +
+                `</tr>`,
+            )
+            .join("");
       }
 
       // ── REGIÕES ──────────────────────────────────────────────────────────

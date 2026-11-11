@@ -137,7 +137,7 @@ def _run_pipeline(run_id: int) -> None:
         )
         df, stats = analyze(
             df, config, embeddings=embeddings, progress_callback=lambda s, _p: stage(s),
-            period=period, plenary_totals=plenary_totals,
+            period=period, plenary_totals=plenary_totals, keywords=ds["keywords"],
         )
 
         stats["info"] = {

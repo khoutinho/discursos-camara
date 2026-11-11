@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .config import STOPWORDS_DOMAIN
 from .text_cleaning import CLEANING_VERSION
-from .vocabulary import SPACY_MODEL
+from .vocabulary import SPACY_MODEL, UBIQUITOUS_SHARE
 
 @dataclass(frozen=True)
 class EmbeddingSpec:
@@ -151,7 +151,12 @@ def methodology(cfg: TopicModelConfig, n_docs: int | None = None) -> list[dict]:
         ('Vocabulário (c-TF-IDF)', 'ngram_range', '(1, 2)', 'Considera palavras isoladas e pares de palavras.'),
         ('Vocabulário (c-TF-IDF)', 'min_df', 2, 'Ignora termos que aparecem em menos de 2 tópicos.'),
         ('Vocabulário (c-TF-IDF)', 'stopwords', f'{len(STOPWORDS_DOMAIN)} termos',
-         'Stopwords do português (NLTK), jargão parlamentar e as keywords da busca.'),
+         'Stopwords do português (NLTK) e jargão parlamentar.'),
+        ('Vocabulário (c-TF-IDF)', 'palavras muito frequentes', f'em ≥{UBIQUITOUS_SHARE:.0%} dos discursos',
+         'Saem do vocabulário, com as variações de acento e plural: aparecem em quase todos os tópicos e não '
+         'diferenciam nenhum. Em geral são a keyword de uma busca com um termo só e o vocabulário que a '
+         'acompanha (ex.: "mulher" e "violência" na busca por "feminicídio"); numa busca com várias '
+         'keywords, as que aparecem em menos da metade dos discursos podem aparecer nos rótulos.'),
         ('Vocabulário (c-TF-IDF)', 'classes gramaticais', 'substantivo, nome próprio, adjetivo, particípio',
          f'Só palavras de conteúdo entram nos rótulos: a classe mais comum de cada palavra no corpus é '
          f'identificada com o spaCy ({SPACY_MODEL}); verbos, advérbios, pronomes e números ficam de fora.'),

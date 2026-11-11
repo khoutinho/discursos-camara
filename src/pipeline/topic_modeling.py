@@ -8,11 +8,13 @@ Fluxo:
 3. HDBSCAN descobre clusters (tópicos) automaticamente, com pertencimento suave a cada tópico
 4. reduce_topics() une tópicos parecidos, se pedido (nr_topics)
 5. reduce_outliers() leva o ruído para o tópico mais próximo, se configurado
-6. CountVectorizer com stopwords de domínio + só palavras de conteúdo (vocabulary.py) → c-TF-IDF → labels
+6. CountVectorizer com stopwords de domínio, sem palavras presentes em quase todos os discursos e só com
+   palavras de conteúdo (vocabulary.py) → c-TF-IDF → labels
 7. KeyBERT + MMR refinam as labels pra diversidade e relevância
 8. Pertencimento suave por tópico permite multi-label por discurso
 """
 
+import re
 import time
 import warnings
 
@@ -28,12 +30,17 @@ from umap import UMAP
 
 from .config import STOPWORDS_DOMAIN
 from .model_config import EMBEDDING_MODELS, TopicModelConfig, embedding_cache_key, methodology
-from .vocabulary import non_content_words
+from .vocabulary import TOKEN_PATTERN, non_content_words, ubiquitous_words
 
 warnings.filterwarnings('ignore')
 
 LABEL_MAX_SEQ_LENGTH = 512  # contexto do modelo usado só para escolher os rótulos (KeyBERTInspired)
-VOCAB_TOKEN_PATTERN = r'(?u)\b[^\W\d_]{2,}\b'  # só palavras com letras (sem números como "2023", "16")
+
+# Verbo com pronome oblíquo ("criticá-la", "tornou-se", "fazê-lo-ia"): o separador de palavras corta
+# no hífen e sobraria o verbo truncado ("criticá"); a forma inteira sai do vocabulário (é verbo).
+_ENCLITIC = re.compile(
+    r'\b[^\W\d_]+-(?:se|lhes?|l?[oa]s?|n[oa]s?|me|te|nos|vos)(?:-[^\W\d_]+)?\b', re.IGNORECASE,
+)
 
 
 def split_words(text: str, n_words: int | None) -> list[str]:
@@ -93,10 +100,15 @@ def device_info() -> dict:
 
 
 class _ContentVectorizer(CountVectorizer):
-    """CountVectorizer que descarta bigramas de palavra repetida ("democracia democracia").
+    """CountVectorizer que descarta verbos com pronome oblíquo ("criticá-la") e bigramas de palavra
+    repetida ("democracia democracia").
 
-    Eles surgem quando as stopwords entre duas ocorrências da mesma palavra são removidas.
+    Os bigramas repetidos surgem quando as stopwords entre duas ocorrências da mesma palavra são removidas.
     """
+
+    def build_preprocessor(self):
+        preprocess = super().build_preprocessor()
+        return lambda doc: _ENCLITIC.sub(' ', preprocess(doc))
 
     def build_analyzer(self):
         analyze = super().build_analyzer()
@@ -185,8 +197,10 @@ class TopicModeler:
         )
 
         vectorizer = _ContentVectorizer(
-            stop_words=sorted(STOPWORDS_DOMAIN | non_content_words(docs_list)),
-            token_pattern=VOCAB_TOKEN_PATTERN,
+            stop_words=sorted(
+                STOPWORDS_DOMAIN | ubiquitous_words(docs_list, STOPWORDS_DOMAIN) | non_content_words(docs_list)
+            ),
+            token_pattern=TOKEN_PATTERN,
             min_df=2,
             ngram_range=(1, 2),
         )
