@@ -113,7 +113,7 @@ Para rodar a análise sobre um CSV sem abrir o app:
 python -m src.pipeline.run --input discursos.csv --output output/ --embedding-model bge-m3 --keywords "feminicídio"
 ```
 
-A CLI não busca o total de discursos do Plenário, então não calcula as tendências por proporção. Para isso, use o app.
+A CLI faz só as tendências por contagem: ela não busca o total de discursos do Plenário nem as bancadas, então não calcula a proporção nem a proporção ÷ bancada. Para isso, use o app.
 
 ## Metodologia
 
@@ -125,7 +125,7 @@ A CLI não busca o total de discursos do Plenário, então não calcula as tend�
 | Agrupamento | UMAP (5 dimensões, cosseno) → HDBSCAN (`min_cluster_size` = máx(piso do modelo, 1% dos discursos)). Discursos sem tópico vão para o mais próximo e ficam marcados (`Topico_reatribuido`) |
 | Rótulos | c-TF-IDF só com substantivos, nomes próprios, adjetivos e particípios (spaCy); saem as palavras presentes em ≥50% dos discursos, que costumam ser as próprias keywords |
 | Ideologia | Partidos classificados segundo Bolognesi, Ribeiro & Codato (2023) |
-| Tendências | Mann-Kendall anual (5+ anos completos) e sazonal (Hirsch & Slack, 1984), sobre a contagem e sobre a proporção em relação ao total de discursos do Plenário no mês |
+| Tendências | Mann-Kendall anual (5+ anos completos) e sazonal (Hirsch & Slack, 1984), sobre a contagem e sobre a proporção em relação ao total de discursos do Plenário no mês. Nos espectros, também a proporção ÷ fatia do espectro nas cadeiras na posse de cada legislatura (API Dados Abertos). A série começa no mês do primeiro discurso encontrado, não na data pesquisada |
 
 A aba **Estatísticas** do dashboard e o endpoint `/api/methodology` exportam os parâmetros usados em cada análise, prontos para a seção de métodos.
 
@@ -134,7 +134,7 @@ A aba **Estatísticas** do dashboard e o endpoint `/api/methodology` exportam os
 - **Estabilidade:** com outra semente do UMAP, parte dos discursos muda de tópico. Compare rodadas antes de tirar conclusões sobre tópicos pequenos.
 - **Menções de passagem:** muitos discursos citam a keyword uma única vez, e o tópico deles reflete o assunto principal do discurso (homenagens, política local), não o tema pesquisado.
 - **Tópicos pequenos** (15–30 discursos em uma década) quase sempre dão "sem tendência" por falta de dados.
-- **Proporção por espectro:** o denominador é o total do Plenário, não o de cada bancada.
+- **Bancadas:** a proporção ÷ bancada usa as cadeiras na posse; trocas de partido durante o mandato não entram. Em 1999–2003 a API não tem o histórico dos deputados e a fatia é aproximada (inclui suplentes).
 
 ## Artigo
 
