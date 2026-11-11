@@ -9,6 +9,13 @@ Testes de tendência (Mann-Kendall) sobre contagem e proporção de discursos.
   Com 4 pontos o menor p possível é ~0,09, então 4 anos nunca dão resultado significativo.
 - Sazonal: Mann-Kendall sazonal (Hirsch & Slack, 1984) sobre a série mensal; compara cada
   mês do calendário só com o mesmo mês de outros anos (precisa de MIN_MONTHS_SEASONAL).
+
+A série começa no mês do primeiro discurso da coleta, não na data pesquisada: se o termo
+ainda não existia no início do período, os meses vazios antes dele puxariam o teste para
+"crescente". Se o primeiro discurso é de fevereiro, a série começa em janeiro: janeiro é
+recesso (quase sem discursos no Plenário), e sem isso uma busca iniciada em 1º de janeiro
+perderia o primeiro ano do teste anual. Espectros e tópicos usam o mesmo início (o do corpus
+inteiro): depois que o termo existe, um grupo sem discursos é informação, não ausência do termo.
 """
 
 from datetime import date
@@ -51,10 +58,13 @@ def compute_trends(
     """
     Args:
         df: discursos com Data_dt, Espectro e (opcional) Topico.
-        inicio, fim: período coletado (meses sem discursos contam como zero).
+        inicio, fim: período coletado. A série começa no mês do primeiro discurso, se for
+            posterior ao de `inicio`; a partir daí, meses sem discursos contam como zero.
         plenary_totals: {'YYYY-MM': total do Plenário}; None = sem proporção.
         topic_labels: {topic_id: label}; None = sem testes por tópico.
     """
+    inicio_pesquisado = inicio
+    inicio = series_start(df, inicio)
     months = pd.period_range(inicio, fim, freq='M')
     years = complete_years(inicio, fim)
     month_of = df['Data_dt'].dt.to_period('M')
@@ -85,10 +95,24 @@ def compute_trends(
             series.append({'grupo': 'topico', 'nome': label, 'total': int(mask.sum()), **tests_for(mask)})
 
     return {
-        'cobertura': {**coverage(inicio, fim), 'proporcao_disponivel': den is not None and den.notna().any(),
+        'cobertura': {**coverage(inicio, fim), 'inicio_pesquisado': inicio_pesquisado.isoformat(),
+                      'primeiro_discurso': df['Data_dt'].min().date().isoformat() if len(df) else None,
+                      'proporcao_disponivel': den is not None and den.notna().any(),
                       'meses_sem_total': missing},
         'series': series,
     }
+
+
+def series_start(df: pd.DataFrame, inicio: date) -> date:
+    """
+    Dia 1 do mês do primeiro discurso (janeiro, se ele for de fevereiro: recesso), se for
+    posterior ao mês de `inicio`; senão `inicio`.
+    """
+    first = df['Data_dt'].min()
+    if pd.isna(first):
+        return inicio
+    start = date(first.year, 1 if first.month == 2 else first.month, 1)
+    return start if start > inicio.replace(day=1) else inicio
 
 
 def _tests(num: pd.Series, den: pd.Series | None, months: pd.PeriodIndex, years: list[int]) -> dict:
