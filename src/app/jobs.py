@@ -9,6 +9,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 
+from ..scraper import bancadas as bancadas_api
 from ..scraper import sitaqweb
 from . import db
 
@@ -76,7 +77,7 @@ MIN_DOCS = 50
 
 # overall progress (0–1) at the start of each stage; totals fill 0.02→0.1, embeddings 0.1→0.75
 STAGE_PROGRESS = {
-    "loading": 0.0, "totals": 0.02, "embeddings": 0.1, "clustering": 0.75, "reduce": 0.88, "statistics": 0.93,
+    "loading": 0.0, "totals": 0.02, "bancadas": 0.07, "embeddings": 0.1, "clustering": 0.75, "reduce": 0.88, "statistics": 0.93,
 }
 
 # transcripts are published with a delay; a month's total only counts as final this long after it ends
@@ -127,6 +128,9 @@ def _run_pipeline(run_id: int) -> None:
         else:  # imported CSV: the period is what the file covers
             period = (df["Data_dt"].min().date(), df["Data_dt"].max().date())
         plenary_totals = _plenary_totals(conn, run_id, *period)
+        # the trend series starts at the first speech, so earlier legislatures are not needed
+        from ..pipeline.trends import series_start
+        bancadas = _bancadas(conn, run_id, series_start(df, period[0]), period[1])
 
         embeddings = _embeddings_for(conn, run_id, df, params["embedding_model"])
 
@@ -137,7 +141,7 @@ def _run_pipeline(run_id: int) -> None:
         )
         df, stats = analyze(
             df, config, embeddings=embeddings, progress_callback=lambda s, _p: stage(s),
-            period=period, plenary_totals=plenary_totals, keywords=ds["keywords"],
+            period=period, plenary_totals=plenary_totals, bancadas=bancadas, keywords=ds["keywords"],
         )
 
         stats["info"] = {
@@ -214,6 +218,37 @@ def _plenary_totals(conn, run_id: int, inicio: date, fim: date) -> dict[str, int
             if i % 12 == 0 or i == len(to_fetch):
                 db.update_run(conn, run_id, progress=start_p + (end_p - start_p) * i / len(to_fetch))
     return totals
+
+
+def _bancadas(conn, run_id: int, inicio: date, fim: date) -> list[dict] | None:
+    """
+    Bancada na posse de cada legislatura do período, para a "proporção ÷ bancada" dos espectros.
+
+    A posse não muda depois de acontecer, então cada legislatura é baixada uma vez (~1 min,
+    um pedido por deputado) e fica no banco. Se a API falhar, a legislatura fica de fora
+    (os meses dela saem do teste) e é tentada de novo na próxima análise.
+    """
+    start_p, end_p = STAGE_PROGRESS["bancadas"], STAGE_PROGRESS["embeddings"]
+    db.update_run(conn, run_id, stage="bancadas", progress=start_p)
+    try:
+        legs = bancadas_api.legislaturas(inicio, fim)
+    except bancadas_api.BancadaError:
+        return None
+    cache = db.cached_bancadas(conn)
+    out = []
+    for i, leg in enumerate(legs):
+        if leg["id"] not in cache:
+            def progress(done, total, i=i):
+                if done % 50 == 0 or done == total:
+                    db.update_run(conn, run_id, progress=start_p + (end_p - start_p) * (i + done / total) / len(legs))
+            try:
+                partidos, fonte = bancadas_api.posse(leg["id"], leg["inicio"], progress)
+            except bancadas_api.BancadaError:
+                continue
+            db.save_bancada(conn, leg["id"], partidos, fonte)
+            cache[leg["id"]] = {"fonte": fonte, "partidos": partidos}
+        out.append({"legislatura": leg["id"], "inicio": leg["inicio"], "fim": leg["fim"], **cache[leg["id"]]})
+    return out
 
 
 def _embeddings_for(conn, run_id: int, df, model: str):

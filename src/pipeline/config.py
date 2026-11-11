@@ -69,7 +69,7 @@ ESPECTRO = {
 # A comparação ignora maiúsculas ('PCDOB' → 'PCdoB'). Mudanças de nome (PMDB → MDB,
 # PFL → DEM) não entram: são partidos diferentes no tempo.
 PARTIDO_GRAFIAS = {
-    'UNIAO': 'UNIÃO', 'PATRI': 'PATRIOTA', 'SDD': 'SOLIDARIEDADE', 'SOLIDARIEDAD': 'SOLIDARIEDADE',
+    'UNIAO': 'UNIÃO', 'PATRI': 'PATRIOTA', 'SDD': 'SOLIDARIEDADE', 'SD': 'SOLIDARIEDADE', 'SOLIDARIEDAD': 'SOLIDARIEDADE',
     'PODEMOS': 'PODE', 'MISSAO': 'MISSÃO', 'S.PART.': 'SEM PARTIDO', 'S/PARTIDO': 'SEM PARTIDO',
 }
 

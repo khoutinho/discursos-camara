@@ -42,6 +42,7 @@ def analyze(
     progress_callback=None,
     period: tuple[date, date] | None = None,
     plenary_totals: dict[str, int | None] | None = None,
+    bancadas: list[dict] | None = None,
     keywords: list[str] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """
@@ -54,6 +55,7 @@ def analyze(
         progress_callback: Callable(stage: str, pct: float).
         period: período coletado (meses sem discursos contam como zero nas tendências).
         plenary_totals: {'YYYY-MM': total do Plenário}; None = tendências só em contagem.
+        bancadas: bancada na posse de cada legislatura; None = sem "proporção ÷ bancada".
         keywords: keywords da busca (tabela keyword × tópico, com 2+ keywords).
 
     Returns:
@@ -76,7 +78,7 @@ def analyze(
     _cb('statistics', 0.0)
     stats = compute_all_statistics(
         df, topics=topics, topic_labels=topic_labels, period=period, plenary_totals=plenary_totals,
-        keywords=keywords,
+        bancadas=bancadas, keywords=keywords,
     )
 
     n = len(df)

@@ -72,6 +72,16 @@ CREATE TABLE IF NOT EXISTS plenary_month_totals (
     fetched_at TEXT NOT NULL
 );
 
+-- deputados em exercício por partido na posse de cada legislatura (API Dados Abertos)
+CREATE TABLE IF NOT EXISTS bancadas_posse (
+    legislatura INTEGER NOT NULL,
+    partido TEXT NOT NULL,
+    deputados INTEGER NOT NULL,
+    fonte TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    PRIMARY KEY (legislatura, partido)
+);
+
 CREATE TABLE IF NOT EXISTS runs (
     id INTEGER PRIMARY KEY,
     dataset_id INTEGER NOT NULL REFERENCES datasets(id),
@@ -297,6 +307,25 @@ def save_month_total(conn: sqlite3.Connection, month: str, total: int) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO plenary_month_totals (month, total, fetched_at) VALUES (?, ?, ?)",
         (month, total, datetime.now().date().isoformat()),
+    )
+    conn.commit()
+
+
+def cached_bancadas(conn: sqlite3.Connection) -> dict[int, dict]:
+    """{legislatura: {'fonte': ..., 'partidos': {sigla: deputados}}} das legislaturas já baixadas."""
+    out: dict[int, dict] = {}
+    for r in conn.execute("SELECT * FROM bancadas_posse"):
+        leg = out.setdefault(r["legislatura"], {"fonte": r["fonte"], "partidos": {}})
+        leg["partidos"][r["partido"]] = r["deputados"]
+    return out
+
+
+def save_bancada(conn: sqlite3.Connection, legislatura: int, partidos: dict[str, int], fonte: str) -> None:
+    today = datetime.now().date().isoformat()
+    conn.execute("DELETE FROM bancadas_posse WHERE legislatura = ?", (legislatura,))
+    conn.executemany(
+        "INSERT INTO bancadas_posse (legislatura, partido, deputados, fonte, fetched_at) VALUES (?, ?, ?, ?, ?)",
+        [(legislatura, p, n, fonte, today) for p, n in partidos.items()],
     )
     conn.commit()
 

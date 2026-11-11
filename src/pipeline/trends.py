@@ -4,6 +4,9 @@ Testes de tendência (Mann-Kendall) sobre contagem e proporção de discursos.
 - Contagem: discursos do grupo por mês/ano.
 - Proporção: discursos do grupo ÷ total de discursos do Plenário no mesmo mês
   (cancela recesso, anos eleitorais e variações gerais de atividade da Câmara).
+- Proporção ÷ bancada (só espectros): a proporção dividida pela fatia do espectro nas
+  cadeiras na posse da legislatura. 1 = o espectro fala do tema na medida do seu tamanho;
+  2 = o dobro. Sem isso, um espectro que elege mais deputados parece falar mais do tema.
 
 - Anual: Mann-Kendall sobre a série de anos completos (precisa de MIN_YEARS_ANNUAL).
   Com 4 pontos o menor p possível é ~0,09, então 4 anos nunca dão resultado significativo.
@@ -23,6 +26,8 @@ from datetime import date
 import numpy as np
 import pandas as pd
 import pymannkendall as mk
+
+from .preprocessing import spectrum_of
 
 MIN_YEARS_ANNUAL = 5
 MIN_MONTHS_SEASONAL = 24
@@ -54,6 +59,7 @@ def compute_trends(
     fim: date,
     plenary_totals: dict[str, int | None] | None = None,
     topic_labels: dict[int, str] | None = None,
+    bancadas: list[dict] | None = None,
 ) -> dict:
     """
     Args:
@@ -62,6 +68,8 @@ def compute_trends(
             posterior ao de `inicio`; a partir daí, meses sem discursos contam como zero.
         plenary_totals: {'YYYY-MM': total do Plenário}; None = sem proporção.
         topic_labels: {topic_id: label}; None = sem testes por tópico.
+        bancadas: [{'legislatura', 'inicio', 'fim', 'fonte', 'partidos': {sigla: deputados}}],
+            a bancada na posse de cada legislatura; None = sem "proporção ÷ bancada".
     """
     inicio_pesquisado = inicio
     inicio = series_start(df, inicio)
@@ -75,18 +83,26 @@ def compute_trends(
         den = pd.Series([plenary_totals.get(str(m)) for m in months], index=months, dtype=float)
         missing = [str(m) for m in months if pd.isna(den[m])]
 
-    def tests_for(mask: pd.Series) -> dict:
+    shares = seat_shares(bancadas, months) if bancadas and den is not None else None
+
+    def tests_for(mask: pd.Series, espectro: str | None = None) -> dict:
         num = month_of[mask].value_counts().reindex(months, fill_value=0).astype(float)
-        return {
+        out = {
             'contagem': _tests(num, None, months, years),
             'proporcao': _tests(num, den, months, years) if den is not None and den.notna().any() else None,
         }
+        if espectro:
+            # expected speeches if the spectrum spoke in proportion to its seats: den × seat share
+            expected = den * shares[espectro] if shares is not None else None
+            out['bancada'] = (_tests(num, expected, months, years)
+                              if expected is not None and (expected > 0).any() else None)
+        return out
 
     series = [{'grupo': 'geral', 'nome': 'Total de discursos', 'total': len(df),
                **tests_for(pd.Series(True, index=df.index))}]
     for esp in ESPECTROS:
         mask = df['Espectro'] == esp
-        series.append({'grupo': 'espectro', 'nome': esp, 'total': int(mask.sum()), **tests_for(mask)})
+        series.append({'grupo': 'espectro', 'nome': esp, 'total': int(mask.sum()), **tests_for(mask, esp)})
     if topic_labels is not None and 'Topico' in df:
         for tid, label in topic_labels.items():
             if tid == -1:
@@ -98,9 +114,47 @@ def compute_trends(
         'cobertura': {**coverage(inicio, fim), 'inicio_pesquisado': inicio_pesquisado.isoformat(),
                       'primeiro_discurso': df['Data_dt'].min().date().isoformat() if len(df) else None,
                       'proporcao_disponivel': den is not None and den.notna().any(),
-                      'meses_sem_total': missing},
+                      'meses_sem_total': missing,
+                      'bancada_disponivel': any(s.get('bancada') for s in series),
+                      'bancadas': _bancadas_summary(bancadas, months)},
         'series': series,
     }
+
+
+def seat_shares(bancadas: list[dict], months: pd.PeriodIndex) -> pd.DataFrame:
+    """
+    Fatia de cada espectro nas cadeiras, mês a mês (colunas = ESPECTROS). Cada mês usa a
+    legislatura em vigor no dia 1 (janeiro ainda é da anterior); meses sem legislatura = NaN.
+    """
+    rows = {}
+    for m in months:
+        day = m.start_time.date().isoformat()
+        leg = next((b for b in bancadas if b['inicio'] <= day <= b['fim'] and b['partidos']), None)
+        rows[m] = _leg_shares(leg['partidos']) if leg else {e: np.nan for e in ESPECTROS}
+    return pd.DataFrame.from_dict(rows, orient='index', columns=ESPECTROS).astype(float)
+
+
+def _leg_shares(partidos: dict[str, int]) -> dict[str, float]:
+    total = sum(partidos.values())
+    out = dict.fromkeys(ESPECTROS, 0.0)
+    for sigla, n in partidos.items():
+        esp = spectrum_of(sigla)
+        if esp in out:
+            out[esp] += n / total
+    return out
+
+
+def _bancadas_summary(bancadas: list[dict] | None, months: pd.PeriodIndex) -> list[dict]:
+    """Legislaturas usadas na série, com a fatia de cada espectro (para o dashboard)."""
+    if not bancadas or not len(months):
+        return []
+    first, last = months[0].start_time.date().isoformat(), months[-1].start_time.date().isoformat()
+    return [
+        {'legislatura': b['legislatura'], 'inicio': b['inicio'], 'fim': b['fim'], 'fonte': b['fonte'],
+         'fatias': {e: round(v, 4) for e, v in _leg_shares(b['partidos']).items()}}
+        for b in sorted(bancadas, key=lambda b: b['inicio'])
+        if b['partidos'] and b['inicio'] <= last and b['fim'] >= first
+    ]
 
 
 def series_start(df: pd.DataFrame, inicio: date) -> date:

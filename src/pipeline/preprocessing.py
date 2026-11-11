@@ -35,6 +35,11 @@ def normalize_party(sigla):
     return _SIGLAS.get(sigla.upper(), sigla)
 
 
+def spectrum_of(sigla) -> str:
+    """Espectro em 3 classes de uma sigla ('Sem classificação' se não estiver no mapa)."""
+    return ESPECTRO_3.get(ESPECTRO.get(normalize_party(sigla)), 'Sem classificação')
+
+
 def classify_ideology(df: pd.DataFrame) -> pd.DataFrame:
     """Normaliza a coluna Partido e adiciona Espectro7 e Espectro (3 classes)."""
     df = df.copy()

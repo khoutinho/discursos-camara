@@ -22,6 +22,7 @@ def compute_all_statistics(
     topic_labels: dict[int, str] | None = None,
     period: tuple[date, date] | None = None,
     plenary_totals: dict[str, int | None] | None = None,
+    bancadas: list[dict] | None = None,
     keywords: list[str] | None = None,
 ) -> dict:
     """
@@ -33,6 +34,7 @@ def compute_all_statistics(
         topic_labels: Mapeamento topic_id → label.
         period: período coletado; None = da primeira à última data dos discursos.
         plenary_totals: {'YYYY-MM': total do Plenário} para as tendências em proporção.
+        bancadas: bancada na posse de cada legislatura, para a "proporção ÷ bancada" dos espectros.
         keywords: keywords da busca (tabela keyword × tópico, com 2+ keywords).
 
     Returns:
@@ -52,7 +54,7 @@ def compute_all_statistics(
     inicio, fim = period or (df['Data_dt'].min().date(), df['Data_dt'].max().date())
     if topics is not None:
         df = df.assign(Topico=topics)
-    stats['tendencias'] = compute_trends(df, inicio, fim, plenary_totals, topic_labels)
+    stats['tendencias'] = compute_trends(df, inicio, fim, plenary_totals, topic_labels, bancadas)
     espectros = ['Esquerda', 'Centro', 'Direita']
 
     # ── Proporção por espectro ao longo do tempo ──
