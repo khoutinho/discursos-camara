@@ -922,6 +922,7 @@
               </p>
               <div class="seg" role="radiogroup" aria-label="Série analisada">
                 <button role="radio" data-serie="proporcao">Proporção</button>
+                <button role="radio" data-serie="bancada">Proporção ÷ bancada</button>
                 <button role="radio" data-serie="contagem">Contagem</button>
               </div>
             </div>
@@ -1613,10 +1614,17 @@
         const cob = T.cobertura;
         const buttons = document.querySelectorAll(".seg button");
         if (!serieAtual) serieAtual = cob.proporcao_disponivel ? "proporcao" : "contagem";
+        if (serieAtual === "bancada" && !cob.bancada_disponivel) serieAtual = "proporcao";
         buttons.forEach((b) => {
-          const isProp = b.dataset.serie === "proporcao";
-          b.disabled = isProp && !cob.proporcao_disponivel;
-          b.title = b.disabled ? "Os totais do Plenário não estão disponíveis nesta análise" : "";
+          const serie = b.dataset.serie;
+          b.disabled =
+            (serie === "proporcao" && !cob.proporcao_disponivel) || (serie === "bancada" && !cob.bancada_disponivel);
+          b.title = !b.disabled
+            ? ""
+            : serie === "proporcao"
+              ? "Os totais do Plenário não estão disponíveis nesta análise"
+              : "As bancadas não estão nesta análise (gerada antes desta opção, ou a API de Dados Abertos não respondeu). " +
+                "Rode a análise de novo.";
           b.setAttribute("aria-checked", String(b.dataset.serie === serieAtual));
           b.onclick = () => {
             serieAtual = b.dataset.serie;
@@ -1624,10 +1632,17 @@
           };
         });
 
+        // "bancada" exists only for the spectra; the total and the topics fall back to the proportion
+        const serieDe = (s) => (serieAtual === "bancada" && s.grupo !== "espectro" ? "proporcao" : serieAtual);
+
         document.getElementById("serie-desc").innerHTML =
           serieAtual === "proporcao"
             ? "<strong>Proporção</strong>: discursos do grupo ÷ todos os discursos do Plenário no mesmo período. " +
               "Mede se o tema ganhou espaço no debate e neutraliza anos eleitorais e o recesso."
+            : serieAtual === "bancada"
+            ? "<strong>Proporção ÷ bancada</strong> (só espectros): a proporção dividida pela fatia do espectro nas " +
+              "cadeiras da Câmara, contadas na posse de cada legislatura. 1 = o espectro fala do tema na medida do seu " +
+              "tamanho; 2 = o dobro. Mede se o espectro passou a dar mais atenção ao tema, e não só se elegeu mais deputados."
             : "<strong>Contagem</strong>: número de discursos. Sobe e desce junto com a atividade geral da Câmara " +
               "(anos eleitorais, recesso), o que pode esconder ou criar tendências.";
 
@@ -1636,10 +1651,11 @@
         document.getElementById("mk-grid").innerHTML = cards
           .map((s) => {
             const cor = s.grupo === "geral" ? C.acc : espColor(s.nome);
-            const r = s[serieAtual];
+            const r = s[serieDe(s)];
+            const aviso = serieDe(s) !== serieAtual ? '<span class="mk-na">proporção (não se aplica ao total)</span>' : "";
             return `
         <div class="mk-card">
-          <div class="mk-card-title" style="color:${cor}">${esc(s.nome)}</div>
+          <div class="mk-card-title" style="color:${cor}">${esc(s.nome)}</div>${aviso}
           ${testBlock("Anual", r?.anual, "anual")}
           ${testBlock("Sazonal", r?.sazonal, "sazonal")}
         </div>`;
@@ -1671,7 +1687,24 @@
         }
         if (serieAtual === "proporcao") {
           notes.push("Nos espectros, o denominador é o total do Plenário, não o de cada bancada: " +
-            "se um espectro elege mais deputados, sua fatia pode subir sem que cada deputado fale mais.");
+            "se um espectro elege mais deputados, sua fatia pode subir sem que cada deputado fale mais. " +
+            (cob.bancada_disponivel ? "\"Proporção ÷ bancada\" corrige isso." : ""));
+        }
+        if (serieAtual === "bancada") {
+          const pct = (v) => Math.round(v * 100) + "%";
+          const legs = (cob.bancadas || []).map(
+            (b) => `${b.inicio.slice(0, 4)}–${b.fim.slice(0, 4)}: ` +
+              ESPECTROS.map((e) => `${e} ${pct(b.fatias[e] ?? 0)}`).join(", ") + (b.fonte === "listagem" ? " (aproximada)" : ""),
+          );
+          notes.push(`Fatia das cadeiras na posse de cada legislatura (API Dados Abertos). ${legs.join("; ")}. ` +
+            "O resto são partidos sem classificação. Trocas de partido durante o mandato não entram.");
+          if ((cob.bancadas || []).some((b) => b.fonte === "listagem")) {
+            notes.push("Aproximada: a API não tem o histórico dessa legislatura; a fatia vem da lista de todos os " +
+              "deputados que passaram por ela, incluindo suplentes.");
+          }
+          notes.push("O total de discursos e a tabela de tópicos mostram a proporção: a bancada só se aplica aos espectros.");
+        }
+        if (serieAtual !== "contagem") {
           if (cob.meses_sem_total.length) {
             notes.push(`${cob.meses_sem_total.length} ${cob.meses_sem_total.length === 1 ? "mês ficou" : "meses ficaram"} ` +
               `fora da proporção porque o SitaQWeb não respondeu (${cob.meses_sem_total.slice(0, 6).join(", ")}` +
@@ -1682,7 +1715,7 @@
           .map((n) => `<p class="card-desc" style="margin: 0.8rem 0 0">${esc(n)}</p>`)
           .join("");
 
-        document.getElementById("mk-topicos-serie").textContent = serieAtual === "proporcao" ? "proporção" : "contagem";
+        document.getElementById("mk-topicos-serie").textContent = serieAtual === "contagem" ? "contagem" : "proporção";
         const cell = (r) => {
           if (!r) return '<td class="mk-trend-no">—</td><td class="num">—</td><td class="num">—</td>';
           const [label, cls, icon] = trendOf(r.tendencia);
@@ -1692,7 +1725,7 @@
           .filter((s) => s.grupo === "topico")
           .sort((a, b) => b.total - a.total)
           .map((s) => {
-            const r = s[serieAtual];
+            const r = s[serieDe(s)];
             return `<tr><td title="${esc(s.nome)}">${esc(s.nome)}</td><td class="num">${s.total.toLocaleString("pt-BR")}</td>
           ${cell(r?.anual)}${cell(r?.sazonal)}</tr>`;
           })
