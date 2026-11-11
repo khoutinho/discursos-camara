@@ -573,6 +573,12 @@
         gap: 0.6rem;
       }
 
+      .btn-png-group {
+        flex: none;
+        display: inline-flex;
+        gap: 0.3rem;
+      }
+
       .btn-png {
         flex: none;
         background: transparent;
@@ -1733,29 +1739,42 @@
           const canvas = card.querySelector("canvas");
           const title = card.querySelector(".card-title");
           if (!canvas || !title || !Chart.getChart(canvas)) return;
-          const btn = document.createElement("button");
-          btn.className = "btn-png";
-          btn.textContent = "PNG";
-          btn.title = "Baixar este gráfico como imagem PNG";
-          btn.addEventListener("click", () => exportPng(canvas, title.firstChild.textContent));
-          title.appendChild(btn);
+          const group = document.createElement("span");
+          group.className = "btn-png-group";
+          for (const [label, light, tip] of [
+            ["PNG", false, "Baixar este gráfico como imagem PNG, com o fundo escuro do dashboard"],
+            ["PNG claro", true, "Baixar este gráfico como imagem PNG com fundo branco (para artigos e impressão)"],
+          ]) {
+            const btn = document.createElement("button");
+            btn.className = "btn-png";
+            btn.textContent = label;
+            btn.title = tip;
+            btn.addEventListener("click", () => exportPng(canvas, title.firstChild.textContent, light));
+            group.appendChild(btn);
+          }
+          title.appendChild(group);
         });
       }
 
-      function exportPng(canvas, titleText) {
+      function exportPng(canvas, titleText, light = false) {
         const chart = Chart.getChart(canvas);
-        const previous = chart.options.devicePixelRatio;
-        chart.$exportBg = getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || "#10131a";
-        chart.options.devicePixelRatio = 3; // high resolution for papers and slides
-        chart.resize();
-        chart.update("none");
-        const url = chart.toBase64Image("image/png", 1);
-        chart.$exportBg = null;
-        chart.options.devicePixelRatio = previous;
-        chart.resize();
-        chart.update("none");
+        let url;
+        if (light) {
+          url = lightPng(chart);
+        } else {
+          const previous = chart.options.devicePixelRatio;
+          chart.$exportBg = getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || "#10131a";
+          chart.options.devicePixelRatio = 3; // high resolution for papers and slides
+          chart.resize();
+          chart.update("none");
+          url = chart.toBase64Image("image/png", 1);
+          chart.$exportBg = null;
+          chart.options.devicePixelRatio = previous;
+          chart.resize();
+          chart.update("none");
+        }
 
-        const slug = titleText
+        const slug = (titleText + (light ? " claro" : ""))
           .trim()
           .toLowerCase()
           .normalize("NFD")
@@ -1764,6 +1783,65 @@
           .replace(/^_|_$/g, "")
           .slice(0, 60);
         download(url, `${slug || "grafico"}.png`);
+      }
+
+      // Redraws the chart on a hidden canvas with white background and dark text/grid; series
+      // colours stay as they are. The on-screen chart is never touched.
+      function lightPng(chart) {
+        const LIGHT = { text: "#333a48", grid: "#e2e5eb", bg: "#ffffff" };
+        const scales = {};
+        for (const id of Object.keys(chart.scales)) {
+          scales[id] = {
+            ticks: { color: LIGHT.text },
+            grid: { color: LIGHT.grid },
+            border: { color: LIGHT.grid },
+            title: { color: LIGHT.text },
+          };
+        }
+        const options = Chart.helpers.merge({}, [
+          chart.config.options,
+          {
+            responsive: false,
+            animation: false,
+            devicePixelRatio: 3, // high resolution for papers and slides
+            color: LIGHT.text,
+            scales,
+            plugins: { legend: { labels: { color: LIGHT.text } } },
+          },
+        ]);
+        const data = {
+          labels: chart.data.labels ? [...chart.data.labels] : undefined,
+          datasets: chart.data.datasets.map((d) => ({ ...d })),
+        };
+
+        const holder = document.createElement("div");
+        holder.style.cssText = `position:fixed;left:-10000px;top:0;width:${chart.width}px;height:${chart.height}px`;
+        const tmp = document.createElement("canvas");
+        tmp.width = chart.width;
+        tmp.height = chart.height;
+        holder.appendChild(tmp);
+        document.body.appendChild(holder);
+        const copy = new Chart(tmp, {
+          type: chart.config.type,
+          data,
+          options,
+          plugins: [
+            {
+              id: "lightBackground",
+              beforeDraw({ ctx, width, height }) {
+                ctx.save();
+                ctx.globalCompositeOperation = "destination-over";
+                ctx.fillStyle = LIGHT.bg;
+                ctx.fillRect(0, 0, width, height);
+                ctx.restore();
+              },
+            },
+          ],
+        });
+        const url = copy.toBase64Image("image/png", 1);
+        copy.destroy();
+        holder.remove();
+        return url;
       }
 
       function download(url, filename, revoke = false) {
