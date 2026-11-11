@@ -4,7 +4,11 @@ Carregamento, limpeza e classificação dos dados.
 
 import pandas as pd
 
-from .config import ESPECTRO, ESPECTRO_3, UF_REGIAO
+from .config import ESPECTRO, ESPECTRO_3, PARTIDO_GRAFIAS, UF_REGIAO
+
+_SIGLAS = {k.upper(): k for k in [*ESPECTRO, *PARTIDO_GRAFIAS.values()]} | {
+    k.upper(): v for k, v in PARTIDO_GRAFIAS.items()
+}
 
 
 def load_and_clean(csv_path: str, encoding: str = 'utf-8-sig') -> pd.DataFrame:
@@ -23,9 +27,18 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def normalize_party(sigla):
+    """Une grafias da mesma sigla ('PCDOB' e 'PCdoB', 'S.PART.' e 'SEM PARTIDO'); o resto fica como está."""
+    if not isinstance(sigla, str):
+        return sigla
+    sigla = sigla.strip()
+    return _SIGLAS.get(sigla.upper(), sigla)
+
+
 def classify_ideology(df: pd.DataFrame) -> pd.DataFrame:
-    """Adiciona colunas Espectro7 e Espectro (3 classes) ao DataFrame."""
+    """Normaliza a coluna Partido e adiciona Espectro7 e Espectro (3 classes)."""
     df = df.copy()
+    df['Partido'] = df['Partido'].map(normalize_party)
     df['Espectro7'] = df['Partido'].map(ESPECTRO).fillna('Sem classificação')
     df['Espectro'] = df['Espectro7'].map(ESPECTRO_3).fillna('Sem classificação')
     return df

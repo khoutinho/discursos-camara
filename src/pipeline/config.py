@@ -33,7 +33,7 @@ ESPECTRO = {
 
     # Direita
     'PL': 'Direita', 'PP': 'Direita', 'PROGRESSISTAS': 'Direita',
-    'REPUBLICANOS': 'Direita', 'UNIAO': 'Direita', 'UNIÃO': 'Direita',
+    'REPUBLICANOS': 'Direita', 'UNIÃO': 'Direita',
     'DEM': 'Direita', 'PSC': 'Direita', 'PRB': 'Direita',
     'PTB': 'Direita', 'PR': 'Direita', 'PATRIOTA': 'Direita',
     'PFL': 'Direita',
@@ -42,13 +42,11 @@ ESPECTRO = {
     'PSL': 'Extrema-direita', 'NOVO': 'Extrema-direita',
 
     # Partidos extintos/históricos (presentes no CSV completo 2000-2025)
-    'PTDOB': 'Centro', 'PTdoB': 'Centro',
+    'PTdoB': 'Centro',
     'PRONA': 'Extrema-direita',
     'PTC': 'Centro-direita', 'PRP': 'Direita',
-    'SDD': 'Centro-direita',
     'PMB': 'Centro-direita',
     'PRTB': 'Extrema-direita',
-    'PATRI': 'Direita',
     'PAN': 'Centro-esquerda',
     'PST': 'Centro-direita',
     'PHS': 'Centro-direita',
@@ -56,6 +54,23 @@ ESPECTRO = {
     'PDS': 'Direita', 'ARENA': 'Direita',
     'PPL': 'Esquerda',
     'PCO': 'Extrema-esquerda', 'PSTU': 'Extrema-esquerda',
+
+    # Fora da classificação de Bolognesi et al.: mesma classe do partido em que se transformaram
+    'PTN': 'Centro-direita',        # virou PODE (2017)
+    'PEN': 'Direita',               # virou PATRIOTA (2018)
+    'MOBILIZA': 'Esquerda',         # ex-PMN (2023)
+    'AGIR': 'Centro-direita',       # ex-PTC (2022)
+    # Classificação própria, a revisar
+    'PSDC': 'Centro-direita', 'DC': 'Centro-direita',  # Democracia Cristã
+    'MISSÃO': 'Direita',            # Partido Missão (2025)
+}
+
+# Grafias diferentes da mesma sigla no SitaQWeb → forma usada no ESPECTRO.
+# A comparação ignora maiúsculas ('PCDOB' → 'PCdoB'). Mudanças de nome (PMDB → MDB,
+# PFL → DEM) não entram: são partidos diferentes no tempo.
+PARTIDO_GRAFIAS = {
+    'UNIAO': 'UNIÃO', 'PATRI': 'PATRIOTA', 'SDD': 'SOLIDARIEDADE', 'SOLIDARIEDAD': 'SOLIDARIEDADE',
+    'PODEMOS': 'PODE', 'MISSAO': 'MISSÃO', 'S.PART.': 'SEM PARTIDO', 'S/PARTIDO': 'SEM PARTIDO',
 }
 
 ESPECTRO_3 = {
