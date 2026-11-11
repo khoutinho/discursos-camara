@@ -1642,7 +1642,19 @@
 
         const notes = [];
         const periodo = `${cob.meses} meses, ${cob.anos_completos} ${cob.anos_completos === 1 ? "ano completo" : "anos completos"}`;
-        notes.push(`Período analisado: ${periodo}. Anual: precisa de ${cob.min_anos_anual} anos completos. ` +
+        // JSONs from before this field existed started the series at the searched date: no note
+        const mesAno = (iso) => `${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+        const inicioMovido = cob.inicio_pesquisado && mesAno(cob.inicio) !== mesAno(cob.inicio_pesquisado);
+        const primeiro = cob.primeiro_discurso ? mesAno(cob.primeiro_discurso) : mesAno(cob.inicio);
+        const desde = inicioMovido
+          ? ` Calculado a partir de ${mesAno(cob.inicio)}` +
+            (primeiro === mesAno(cob.inicio)
+              ? ", primeiro discurso encontrado"
+              : ` (primeiro discurso encontrado em ${primeiro}; janeiro é recesso)`) +
+            `. A busca começa em ${mesAno(cob.inicio_pesquisado)}; os meses sem o termo antes do primeiro discurso ` +
+            `puxariam o teste para "crescente".`
+          : "";
+        notes.push(`Período analisado: ${periodo}.${desde} Anual: precisa de ${cob.min_anos_anual} anos completos. ` +
           `Sazonal: precisa de ${cob.min_meses_sazonal} meses.`);
         if (cob.sazonal_disponivel && !cob.anual_disponivel) {
           notes.push("Com poucos anos, a alternância entre anos com e sem eleição ainda pode pesar no resultado; " +
