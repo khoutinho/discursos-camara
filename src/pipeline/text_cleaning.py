@@ -4,7 +4,8 @@ Limpeza do texto do discurso antes do topic modeling.
 O texto das notas taquigráficas traz, além da fala, partes que não dizem nada sobre o tema
 e que fazem discursos diferentes parecerem iguais para o modelo de embedding:
 
-- cabeçalho do orador: "O SR. FULANO (PT - SP. Sem revisão do orador.) - "
+- cabeçalho do orador: "O SR. FULANO (PT - SP. Sem revisão do orador.) - ", e nos discursos entregues
+  por escrito "O Sr. FULANO ( PT - SP ) pronuncia o seguinte discurso:"
 - marcações de discurso entregue por escrito: "DISCURSO NA ÍNTEGRA ENCAMINHADO PELO SR. DEPUTADO ..."
 - falas de outras pessoas no meio: Presidente da sessão ("Conclua, Deputada"), apartes
 - marcações da sessão: "(Palmas.)", "(Desligamento automático do microfone.)"
@@ -18,14 +19,23 @@ Mudou alguma regra? Incremente CLEANING_VERSION para invalidar o cache de embedd
 import re
 import unicodedata
 
-CLEANING_VERSION = 1
+CLEANING_VERSION = 2  # v2 (nov/2026): cabeçalho "O Sr. NOME ( PT - SP ) pronuncia o seguinte discurso:"
 
 # ── Marcadores de troca de orador ──
 # "O SR. NOME (Partido - UF. ...) - " ou "A SRA. PRESIDENTE (Fulana. PL - SP) - "
 _UPPER = r"A-ZÀ-ÖØ-Þ"
 _SPEAKER = re.compile(
-    rf"(?:^|(?<=[\s.!?:)\]…]))(?:O|A)\s+SRA?\.\s+([{_UPPER}][{_UPPER}'’.\- ]*?)\s*"
+    rf"(?:^|(?<=[\s.!?:)\]…]))(?:O|A)\s+(?:SRA?\.|SRª\.?)\s+([{_UPPER}][{_UPPER}'’.\- ]*?)\s*"
     r"(?:\([^()]*\))?\s*[-–—]\s+"
+)
+# Discurso entregue por escrito (2015 em diante), depois do "DISCURSO NA ÍNTEGRA ENCAMINHADO...":
+# "A Sra. LAURA CARNEIRO ( PSD - RJ ) pronuncia o seguinte discurso:",
+# "A Sra. Deputada Federal LAURA CARNEIRO (...)", "O Deputado WILSON SANTIAGO (REPUBLICANOS-PB) pronuncia..."
+_WRITTEN_SPEAKER = re.compile(
+    rf"(?:^|(?<=[\s.!?:)\]…]))(?:O|A)\s+"
+    r"(?:S[Rr](?:[Aaª])?\.\s+(?:Deputad[oa]\s+(?:Federal\s+)?)?|Deputad[oa]\s+(?:Federal\s+)?)"
+    rf"([{_UPPER}][{_UPPER}'’.\- ]*?)\s*(?:\([^()]*\))?\s*"
+    r"pronuncia\s+o\s+seguinte\s+discurso\s*[:.]?\s*"
 )
 # "DISCURSO NA ÍNTEGRA ENCAMINHADO PELO SR. DEPUTADO NOME (SEM REGISTRO TAQUIGRÁFICO)."
 # e "DOCUMENTO ENCAMINHADO PELA SRA. DEPUTADA NOME" (anexo do orador)
@@ -100,6 +110,8 @@ def _split_turns(text: str) -> list[tuple[str | None, str]]:
     """Divide o texto em falas: [(orador ou None se antes de qualquer marcador, texto)]."""
     markers = []
     for m in _SPEAKER.finditer(text):
+        markers.append((m.start(), m.end(), m.group(1)))
+    for m in _WRITTEN_SPEAKER.finditer(text):
         markers.append((m.start(), m.end(), m.group(1)))
     for m in _FULL_TEXT.finditer(text):
         markers.append((m.start(), m.end(), m.group(1)))
