@@ -107,6 +107,56 @@ def _accent_warnings(keywords: list[str]) -> list[dict]:
     return avisos
 
 
+class MergeRequest(BaseModel):
+    dataset_ids: list[int] = Field(min_length=2, examples=[[1, 2]])
+    name: str | None = None
+
+
+def _merge_plan(conn, ids: list[int]) -> dict:
+    try:
+        return db.merge_plan(conn, ids)
+    except db.MergeError as e:
+        raise HTTPException(400, str(e))
+
+
+def _public_plan(plan: dict) -> dict:
+    return {k: v for k, v in plan.items() if k != "speech_ids"}
+
+
+@app.get("/api/datasets/merge/preview")
+def merge_preview(ids: list[int] = Query(...)):
+    """O que a junção das coletas daria (período comum, discursos, keywords), sem criar nada."""
+    conn = db.connect()
+    try:
+        return _public_plan(_merge_plan(conn, ids))
+    finally:
+        conn.close()
+
+
+@app.post("/api/datasets/merge", status_code=201)
+def merge_datasets(req: MergeRequest):
+    """
+    Cria uma coleta com os discursos de 2+ coletas concluídas, no período comum a todas.
+
+    Cada discurso entra uma vez só; os discursos fora do período comum ficam de fora (a resposta diz
+    quantos). A coleta nova não pode ser retomada no SitaQWeb.
+    """
+    conn = db.connect()
+    try:
+        plan = _merge_plan(conn, req.dataset_ids)
+        if not plan["discursos"]:
+            raise HTTPException(400, "Nenhum discurso com texto no período comum.")
+        name = (req.name or "").strip() or (
+            # "junção" keeps it apart from a scrape with the same keywords and years (the runs table
+            # shows only the name)
+            f"{', '.join(plan['keywords'])} ({plan['data_inicio'][:4]}–{plan['data_fim'][:4]}, junção)"
+        )
+        dataset_id = db.create_merged_dataset(conn, name, plan)
+        return {**_with_running(db.get_dataset(conn, dataset_id)), "juncao": _public_plan(plan)}
+    finally:
+        conn.close()
+
+
 @app.get("/api/datasets/{dataset_id}")
 def get_dataset(dataset_id: int):
     conn = db.connect()

@@ -3,7 +3,8 @@ Banco SQLite do app.
 
 - datasets: cada coleta (ou importação), com parâmetros e status
 - speeches: discursos únicos, identificados pelo link no SitaQWeb; discurso NULL = ainda não baixado
-- dataset_speeches: quais discursos pertencem a cada dataset
+- dataset_speeches: quais discursos pertencem a cada dataset (uma junção de coletas aponta para os
+  mesmos discursos das coletas de origem, sem copiá-los)
 
 Cada thread deve abrir a própria conexão com connect().
 """
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS datasets (
     status TEXT NOT NULL DEFAULT 'pending',
     total_expected INTEGER,
     error TEXT,
+    origem TEXT,  -- junção: JSON com as coletas de origem e quantos discursos ficaram fora do período
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -110,6 +112,9 @@ def connect(path: Path = DB_PATH) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    # banks created before the merge feature (nov/2026) lack this column
+    if "origem" not in {r["name"] for r in conn.execute("PRAGMA table_info(datasets)")}:
+        conn.execute("ALTER TABLE datasets ADD COLUMN origem TEXT")
     # a 'running' dataset at startup means the app was closed mid-scrape
     conn.execute(
         "UPDATE datasets SET status='interrupted', error='App encerrado durante a coleta', updated_at=? "
@@ -160,6 +165,123 @@ def create_csv_dataset(conn: sqlite3.Connection, name: str, df: pd.DataFrame) ->
             "INSERT INTO dataset_speeches (dataset_id, speech_id) VALUES (?, ?)",
             (dataset_id, speech.lastrowid),
         )
+    conn.commit()
+    return dataset_id
+
+
+class MergeError(ValueError):
+    """Coletas que não podem ser juntadas (mensagem para o usuário)."""
+
+
+def _iso(br: str | None) -> str | None:
+    """'08/03/2015' → '2015-03-08' (None se não for uma data dd/mm/aaaa)."""
+    parts = (br or "").strip().split("/")
+    return f"{parts[2]}-{parts[1]}-{parts[0]}" if len(parts) == 3 and len(parts[2]) == 4 else None
+
+
+def _merge_keywords(lists: list[list[str]]) -> list[str]:
+    """
+    Keywords de todas as coletas, sem repetir a mesma grafia (sem diferenciar maiúsculas). Formas com
+    e sem acento ficam separadas: "pais" e "país" são palavras diferentes. A contagem de menções conta
+    cada ocorrência uma vez, mesmo que ela case com mais de uma keyword (statistics.mentions_by_topic).
+    """
+    chosen: dict[str, str] = {}
+    for kw in (k.strip() for ks in lists for k in ks):
+        if kw:
+            chosen.setdefault(kw.lower(), kw)
+    return list(chosen.values())
+
+
+def merge_plan(conn: sqlite3.Connection, dataset_ids: list[int]) -> dict:
+    """
+    O que a junção das coletas daria, sem gravar nada.
+
+    Período = interseção dos períodos das coletas (só nele todas as keywords foram buscadas). Coleta
+    importada de CSV não tem período: valem as datas do primeiro e do último discurso dela.
+    Os discursos ficam uma vez só (speeches já é único por link).
+
+    Raises:
+        MergeError: menos de 2 coletas, coleta inexistente ou não concluída, períodos sem interseção.
+    """
+    ids = list(dict.fromkeys(dataset_ids))
+    if len(ids) < 2:
+        raise MergeError("Escolha pelo menos duas coletas.")
+    sources, periods = [], []
+    for i in ids:
+        ds = get_dataset(conn, i)
+        if ds is None:
+            raise MergeError(f"Coleta {i} não encontrada.")
+        if ds["status"] != "done":
+            raise MergeError(f'"{ds["name"]}" não está concluída; só coletas concluídas podem ser juntadas.')
+        if ds["data_inicio"]:
+            start, end = ds["data_inicio"], ds["data_fim"]
+        else:
+            dates = [iso for (br,) in conn.execute(
+                "SELECT s.data FROM speeches s JOIN dataset_speeches ds ON ds.speech_id = s.id "
+                "WHERE ds.dataset_id = ?", (i,)) if (iso := _iso(br))]
+            if not dates:
+                raise MergeError(f'"{ds["name"]}" não tem discursos com data.')
+            start, end = min(dates), max(dates)
+        sources.append(ds)
+        periods.append((start, end))
+
+    inicio, fim = max(p[0] for p in periods), min(p[1] for p in periods)
+    if inicio > fim:
+        raise MergeError("Os períodos das coletas não se sobrepõem; não há período comum.")
+
+    rows = conn.execute(
+        f"SELECT DISTINCT s.id, s.url, s.data, s.orador, s.discurso, "
+        f"s.discurso IS NOT NULL AND s.discurso != '' AS has_text "
+        f"FROM speeches s JOIN dataset_speeches ds ON ds.speech_id = s.id "
+        f"WHERE ds.dataset_id IN ({','.join('?' * len(ids))}) ORDER BY s.url IS NULL, s.id",
+        ids,
+    ).fetchall()
+    # a speech imported from CSV has no SitaQWeb link and is a separate row even when the same speech
+    # is in a scrape: same date, speaker and text = same speech (the one with a link is kept)
+    seen, unique = set(), []
+    for r in rows:
+        key = (r["data"], (r["orador"] or "").strip().upper(), r["discurso"]) if r["has_text"] else r["id"]
+        if key not in seen:
+            seen.add(key)
+            unique.append(r)
+    rows = unique
+    inside = [r for r in rows if (d := _iso(r["data"])) and inicio <= d <= fim]
+    with_text = sum(r["has_text"] for r in inside)
+    total_by_source = sum(ds["fetched"] for ds in sources)
+    return {
+        "coletas": [
+            {"id": ds["id"], "name": ds["name"], "keywords": ds["keywords"], "inicio": p[0], "fim": p[1],
+             "periodo_dos_discursos": not ds["data_inicio"]}
+            for ds, p in zip(sources, periods)
+        ],
+        "keywords": _merge_keywords([ds["keywords"] for ds in sources]),
+        "data_inicio": inicio,
+        "data_fim": fim,
+        "speech_ids": [r["id"] for r in inside],
+        "discursos": with_text,                                     # com texto, no período comum
+        "fora_do_periodo": sum(r["has_text"] for r in rows) - with_text,
+        "repetidos": total_by_source - sum(r["has_text"] for r in rows),  # em mais de uma coleta
+    }
+
+
+def create_merged_dataset(conn: sqlite3.Connection, name: str, plan: dict) -> int:
+    """Grava a junção calculada por merge_plan como uma coleta nova (concluída, origem 'juncao')."""
+    now = _now()
+    origem = {
+        "coletas": [{"id": c["id"], "name": c["name"]} for c in plan["coletas"]],
+        "fora_do_periodo": plan["fora_do_periodo"],
+    }
+    cur = conn.execute(
+        "INSERT INTO datasets (name, source, keywords, data_inicio, data_fim, status, total_expected, origem, "
+        "created_at, updated_at) VALUES (?, 'juncao', ?, ?, ?, 'done', ?, ?, ?, ?)",
+        (name, json.dumps(plan["keywords"], ensure_ascii=False), plan["data_inicio"], plan["data_fim"],
+         plan["discursos"], json.dumps(origem, ensure_ascii=False), now, now),
+    )
+    dataset_id = cur.lastrowid
+    conn.executemany(
+        "INSERT INTO dataset_speeches (dataset_id, speech_id) VALUES (?, ?)",
+        [(dataset_id, sid) for sid in plan["speech_ids"]],
+    )
     conn.commit()
     return dataset_id
 
@@ -395,6 +517,7 @@ def run_dir(run_id: int) -> Path:
 def _dataset_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
     d["keywords"] = json.loads(d["keywords"]) if d["keywords"] else []
+    d["origem"] = json.loads(d["origem"]) if d.get("origem") else None
     d["failed"] = d["failed"] or 0
     return d
 

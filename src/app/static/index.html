@@ -162,6 +162,14 @@
       }
       .btn.secondary:hover { border-color: var(--accent); }
       .btn.small { padding: 0.3rem 0.6rem; font-size: 0.75rem; font-weight: 500; }
+      .section-head { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; margin: 2.2rem 0 0.8rem; }
+      .section-head h2 { margin: 0; }
+      .merge-list { border: 0; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.35rem; min-width: 0; }
+      .merge-item { display: flex; align-items: baseline; gap: 0.6rem; font-size: 0.8rem; cursor: pointer; }
+      .merge-item input { flex: none; }
+      .merge-item.disabled { opacity: 0.45; cursor: not-allowed; }
+      .merge-item .hint { margin: 0; }
+      .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
       .card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; margin-bottom: 1rem; }
       .card-head .card-title { margin-bottom: 0; }
       .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
@@ -521,7 +529,37 @@
       </section>
 
       <!-- HISTÓRICO -->
-      <h2>Coletas e importações</h2>
+      <div class="section-head">
+        <h2>Coletas e importações</h2>
+        <button class="btn secondary small" id="merge-open" aria-expanded="false" aria-controls="panel-merge">
+          Juntar coletas
+        </button>
+      </div>
+
+      <!-- JUNTAR COLETAS -->
+      <section id="panel-merge" class="card" hidden>
+        <div class="card-title">Juntar coletas</div>
+        <p class="hint" style="margin: -0.4rem 0 1rem">
+          Cria uma coleta nova com os discursos de duas ou mais coletas concluídas, sem baixar nada de novo. Cada
+          discurso entra uma vez só, e as keywords se somam. Vale o período comum a todas as coletas, porque só nele
+          todas as keywords foram buscadas; discursos fora dele ficam de fora. Coletas importadas de CSV usam as
+          datas do primeiro e do último discurso.
+        </p>
+        <fieldset class="merge-list" id="merge-list">
+          <legend class="sr-only">Coletas para juntar</legend>
+        </fieldset>
+        <div class="field">
+          <label for="merge-name">Nome (opcional)</label>
+          <input type="text" id="merge-name" placeholder="Gerado a partir das keywords e do período comum, com &quot;junção&quot;" />
+        </div>
+        <div id="merge-preview" class="msg" hidden aria-live="polite"></div>
+        <div class="actions">
+          <button class="btn" id="merge-submit" disabled>Criar coleta</button>
+          <button class="btn secondary" id="merge-cancel">Cancelar</button>
+        </div>
+        <div id="merge-error" class="msg error" hidden></div>
+      </section>
+
       <div class="card tbl-wrap">
         <table>
           <thead><tr><th>Nome</th><th>Origem</th><th>Status</th><th class="num">Discursos</th><th></th></tr></thead>
@@ -1085,12 +1123,114 @@
         ];
       }
 
+      // ── juntar coletas ──
+      const escHtml = (s) =>
+        String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      const mergeChecked = () =>
+        [...$("merge-list").querySelectorAll("input:checked")].map((i) => Number(i.value));
+
+      function setMergeOpen(open) {
+        $("panel-merge").hidden = !open;
+        $("merge-open").setAttribute("aria-expanded", String(open));
+        if (open) {
+          $("merge-error").hidden = true;
+          $("merge-name").value = "";
+          renderMergeList();
+          scrollTo($("panel-merge"));
+        }
+      }
+      $("merge-open").addEventListener("click", () => setMergeOpen($("panel-merge").hidden));
+      $("merge-cancel").addEventListener("click", () => setMergeOpen(false));
+
+      function renderMergeList() {
+        const keep = new Set(mergeChecked());
+        const items = lastDatasets.map((ds) => {
+          const ok = ds.status === "done" && !ds.running && ds.fetched > 0;
+          const periodo = ds.data_inicio
+            ? `${toBr(ds.data_inicio)} a ${toBr(ds.data_fim)}`
+            : "datas dos discursos";
+          const kws = ds.keywords.length ? ds.keywords.join(", ") : ORIGEM[ds.source] || ds.source;
+          const input = el("input", { type: "checkbox", value: ds.id, onchange: updateMergePreview });
+          input.checked = ok && keep.has(ds.id);
+          input.disabled = !ok;
+          return el("label", { class: ok ? "merge-item" : "merge-item disabled",
+                               title: ok ? "" : "Só coletas concluídas podem ser juntadas" },
+            input,
+            el("span", {}, el("strong", {}, ds.name), " ",
+              el("span", { class: "hint" }, `${kws} · ${periodo} · ${fmt(ds.fetched)} discursos`)));
+        });
+        $("merge-list").replaceChildren(
+          el("legend", { class: "sr-only" }, "Coletas para juntar"),
+          ...(items.length ? items : [el("p", { class: "hint" }, "Nenhuma coleta ainda.")]),
+        );
+        updateMergePreview();
+      }
+
+      let mergeSeq = 0;
+      async function updateMergePreview() {
+        const ids = mergeChecked();
+        const box = $("merge-preview");
+        $("merge-submit").disabled = true;
+        $("merge-error").hidden = true;
+        if (ids.length < 2) {
+          box.className = "msg";
+          box.textContent = "Marque pelo menos duas coletas.";
+          box.hidden = false;
+          return;
+        }
+        const seq = ++mergeSeq;  // a slower earlier answer must not overwrite a newer one
+        try {
+          const p = await api(`/api/datasets/merge/preview?${ids.map((i) => `ids=${i}`).join("&")}`);
+          if (seq !== mergeSeq) return;
+          const parts = [
+            `Período comum: <strong>${toBr(p.data_inicio)} a ${toBr(p.data_fim)}</strong>.`,
+            `Keywords: ${p.keywords.map((k) => `<q>${escHtml(k)}</q>`).join(", ")}.`,
+            `<strong>${fmt(p.discursos)}</strong> discursos` +
+              (p.repetidos ? ` (${fmt(p.repetidos)} estavam em mais de uma coleta e entram uma vez só)` : "") + ".",
+          ];
+          if (p.fora_do_periodo)
+            parts.push(`<strong>${fmt(p.fora_do_periodo)} discursos ficam de fora</strong> por estarem fora do período comum.`);
+          box.className = p.fora_do_periodo ? "msg warn" : "msg";
+          box.innerHTML = parts.join(" ");
+          box.hidden = false;
+          $("merge-submit").disabled = !p.discursos;
+        } catch (err) {
+          if (seq !== mergeSeq) return;
+          box.hidden = true;
+          showError("merge-error", err);
+        }
+      }
+
+      $("merge-submit").addEventListener("click", async () => {
+        const btn = $("merge-submit");
+        btn.disabled = true;
+        $("merge-error").hidden = true;
+        try {
+          const ds = await api("/api/datasets/merge", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dataset_ids: mergeChecked(), name: $("merge-name").value.trim() || null }),
+          });
+          setMergeOpen(false);
+          await refreshLists();
+          watchDataset(ds);
+        } catch (err) {
+          showError("merge-error", err);
+          btn.disabled = false;
+        }
+      });
+
       // ── histórico ──
       const LISTS_POLL_MS = 3000;
       let listsTimer = null;
 
+      const ORIGEM = { csv: "CSV", sitaqweb: "SitaQWeb", juncao: "Junção" };
+      let lastDatasets = [];
+
       async function refreshLists() {
         const [datasets, runs] = await Promise.all([api("/api/datasets"), api("/api/runs")]);
+        lastDatasets = datasets;
+        if (!$("panel-merge").hidden) renderMergeList();
         const runsOf = (id) => runs.filter((r) => r.dataset_id === id);
 
         $("datasets-empty").hidden = datasets.length > 0;
@@ -1106,7 +1246,8 @@
             buttons.push(trashButton(`Excluir a coleta ${ds.name}`, busy, () => deleteDataset(ds, runsOf(ds.id).length)));
             return el("tr", {},
               el("td", {}, ds.name),
-              el("td", {}, ds.source === "csv" ? "CSV" : "SitaQWeb"),
+              el("td", ds.origem ? { title: "Junção de: " + ds.origem.coletas.map((c) => c.name).join(", ") } : {},
+                ORIGEM[ds.source] || ds.source),
               el("td", {}, tag(active ? "running" : ds.status)),
               el("td", { class: "num" }, fmt(ds.fetched)),
               el("td", {}, el("div", { class: "actions" }, ...buttons)),

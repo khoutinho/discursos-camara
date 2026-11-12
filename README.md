@@ -45,6 +45,8 @@ Abra <http://127.0.0.1:8000>. Há três jeitos de começar:
 > [!IMPORTANT]
 > **Escreva as keywords com acento.** O índice do SitaQWeb mudou no fim de 2022: discursos até 2022 só são encontrados pela forma acentuada. "feminicídio" encontra 1.483 discursos de 2015 a 2026; "feminicidio", só 702. O app busca a forma sem acento junto, mas não consegue adivinhar a acentuada, por isso o formulário sugere a correção.
 
+**Juntar coletas** (acima da tabela de coletas) cria uma coleta nova com os discursos de duas ou mais coletas concluídas, sem baixar nada de novo: cada discurso entra uma vez só e as keywords se somam. Vale o período comum a todas, porque só nele todas as keywords foram buscadas; o painel avisa quantos discursos ficam de fora. Para uma coleta importada de CSV, o período são as datas do primeiro e do último discurso.
+
 Depois da coleta, **Configurar análise** pede:
 
 | Opção | Padrão | Para quê |
@@ -87,6 +89,7 @@ curl -O http://127.0.0.1:8000/api/runs/1/discursos_processados.csv
 | `POST /api/datasets/scrape` | Inicia uma coleta |
 | `POST /api/datasets/import` | Importa um CSV (multipart, campo `file`) |
 | `POST /api/datasets/{id}/resume` | Retoma uma coleta interrompida |
+| `GET /api/datasets/merge/preview?ids=1&ids=2` · `POST /api/datasets/merge` | Prévia e criação de uma junção de coletas (`{"dataset_ids": [1, 2]}`) |
 | `GET /api/datasets/{id}/csv` | Baixa os discursos coletados |
 | `GET /api/accents?words=...` | Formas acentuadas de palavras digitadas sem acento |
 | `GET /api/estimate?dataset_id=...` | Estimativa de tempo da análise |
