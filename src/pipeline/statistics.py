@@ -11,7 +11,7 @@ import pandas as pd
 from scipy.spatial.distance import cosine
 from scipy.stats import pearsonr
 
-from .config import STOPWORDS_DOMAIN
+from .config import CONVIDADO, STOPWORDS_DOMAIN
 from .trends import MIN_YEARS_ANNUAL, complete_years, compute_trends, series_start
 from .vocabulary import fold, ubiquitous_words
 
@@ -122,6 +122,8 @@ def compute_all_statistics(
         {'partido': k, 'count': int(v)} for k, v in top15.items()
     ]
 
+    stats['top_oradores'] = top_speakers(df)
+
     # ── Por região ──
     stats['por_regiao'] = (
         df['Regiao'].value_counts()
@@ -164,6 +166,50 @@ def compute_all_statistics(
         stats['mencoes_por_topico'] = mentions_by_topic(df_with_topics, keywords, topic_labels)
 
     return stats
+
+
+def top_speakers(df: pd.DataFrame, n: int = 10) -> list[dict] | None:
+    """
+    Os n deputados com mais discursos (convidados ficam de fora).
+
+    O SitaQWeb grava o nome em maiúsculas até 2022 e com só as iniciais maiúsculas depois
+    ("ERIKA KOKAY", "Erika Kokay"): o nome é agrupado sem diferenciar maiúsculas e acentos, e
+    mostrado na grafia com minúsculas, se houver; senão, com as iniciais maiúsculas ("Iracema Portella"). Quem trocou de partido aparece com o partido
+    mais frequente (empate: o mais recente) e o espectro dele; os outros vão em 'outros_partidos'.
+    """
+    if 'Orador' not in df.columns:
+        return None
+    d = df[(df['Partido'] != CONVIDADO) & df['Orador'].notna()].sort_values('Data_dt')
+    d = d.assign(_chave=d['Orador'].astype(str).map(lambda s: ' '.join(fold(s).split())))
+    d = d[d['_chave'] != '']
+    result = []
+    for _, g in sorted(d.groupby('_chave'), key=lambda kv: (-len(kv[1]), kv[0]))[:n]:
+        nomes = g['Orador'].astype(str).str.strip()
+        mixed = nomes[nomes != nomes.str.upper()]
+        nome = mixed.value_counts().index[0] if len(mixed) else _title_name(nomes.value_counts().index[0])
+        partidos = g['Partido'].fillna('?').value_counts()
+        last_seen = {p: i for i, p in enumerate(g['Partido'].fillna('?'))}  # sorted by date
+        ordem = sorted(partidos.index, key=lambda p: (-partidos[p], -last_seen[p]))
+        principal = ordem[0]
+        espectro = g.loc[g['Partido'].fillna('?') == principal, 'Espectro'].iloc[0]
+        result.append({
+            'orador': nome,
+            'partido': principal,
+            'uf': g['Estado'].value_counts().index[0] if g['Estado'].notna().any() else '',
+            'espectro': espectro,
+            'discursos': len(g),
+            'outros_partidos': [{'partido': p, 'discursos': int(partidos[p])} for p in ordem[1:]],
+        })
+    return result
+
+
+_NAME_PARTICLES = {'da', 'de', 'do', 'das', 'dos', 'e'}
+
+
+def _title_name(nome: str) -> str:
+    """'MARIA DO ROSÁRIO' → 'Maria do Rosário' (para nomes que só aparecem em maiúsculas)."""
+    words = nome.lower().split()
+    return ' '.join(w if i and w in _NAME_PARTICLES else w[:1].upper() + w[1:] for i, w in enumerate(words))
 
 
 def _top_words(texts: pd.Series, excluded: set[str], n: int = 25) -> list[dict]:

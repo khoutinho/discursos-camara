@@ -186,6 +186,16 @@
         color: var(--dim);
       }
 
+      /* deputy who switched parties: the other parties are in the tooltip */
+      .orador-trocou {
+        cursor: help;
+        border-bottom: 1px dotted var(--dim);
+      }
+      .orador-trocou .dim {
+        color: var(--dim);
+        font-size: 0.85em;
+      }
+
       /* ── STATS BAR ── */
       .stats-bar {
         display: flex;
@@ -925,6 +935,26 @@
 
         <!-- PARTIDOS -->
         <div id="section-partidos" class="section">
+          <div class="card" style="margin-bottom: 1rem">
+            <div class="card-title">Deputados com mais discursos</div>
+            <p class="card-desc" id="oradores-desc">
+              Os 10 oradores com mais discursos na coleta, sem os convidados.
+              Quem trocou de partido aparece com o partido em que fez mais
+              discursos e o espectro dele; passe o mouse no partido para ver
+              os outros.
+            </p>
+            <div class="tbl-wrap" id="oradores-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th class="num">#</th><th>Deputado(a)</th><th>Partido</th><th>UF</th>
+                    <th>Espectro</th><th class="num">Discursos</th>
+                  </tr>
+                </thead>
+                <tbody id="tbl-oradores-body"></tbody>
+              </table>
+            </div>
+          </div>
           <div class="card">
             <div class="card-title">
               Perfil de tópicos dos 15 partidos com mais discursos (% dos
@@ -1555,7 +1585,38 @@
       }
 
       // ── PARTIDOS ─────────────────────────────────────────────────────────
+      const espTag = (e) =>
+        e === "Esquerda" ? "tag-esq" : e === "Direita" ? "tag-dir" : e === "Centro" ? "tag-cen" : "tag-neu";
+
+      function renderOradores() {
+        const O = D.top_oradores;
+        const desc = document.getElementById("oradores-desc");
+        if (!O) {
+          // analyses made before this table existed
+          document.getElementById("oradores-wrap").hidden = true;
+          desc.textContent = "Esta análise foi gerada antes desta tabela. Rode a análise de novo para ver os deputados com mais discursos.";
+          return;
+        }
+        const br = (v) => v.toLocaleString("pt-BR");
+        document.getElementById("tbl-oradores-body").innerHTML = O.map((o, i) => {
+          const outros = o.outros_partidos || [];
+          const partido = outros.length
+            ? `<span class="orador-trocou" title="${esc(`${o.partido}: ${br(o.discursos - outros.reduce((s, p) => s + p.discursos, 0))} discursos\n` +
+                outros.map((p) => `${p.partido}: ${br(p.discursos)}`).join("\n"))}">${esc(o.partido)} <span class="dim">+${outros.length}</span></span>`
+            : esc(o.partido);
+          return `<tr>
+      <td class="num">${i + 1}</td>
+      <td><strong>${esc(o.orador)}</strong></td>
+      <td>${partido}</td>
+      <td>${esc(o.uf)}</td>
+      <td><span class="tag ${espTag(o.espectro)}">${esc(o.espectro)}</span></td>
+      <td class="num">${br(o.discursos)}</td>
+    </tr>`;
+        }).join("");
+      }
+
       function renderPartidos() {
+        renderOradores();
         const partidos = D.partidos_topicos || [];
         if (!partidos.length) return;
         const topicos = Object.keys(partidos[0].topicos);
@@ -1565,7 +1626,7 @@
 
         document.getElementById("tbl-partidos-body").innerHTML = partidos
           .map((p) => {
-            const cls = p.espectro === "Esquerda" ? "tag-esq" : p.espectro === "Direita" ? "tag-dir" : p.espectro === "Centro" ? "tag-cen" : "tag-neu";
+            const cls = espTag(p.espectro);
             const cells = topicos
               .map((t) => {
                 const v = p.topicos[t] || 0;
