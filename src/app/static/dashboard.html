@@ -981,6 +981,7 @@
                   <tbody id="tbl-mk-topicos-body"></tbody>
                 </table>
               </div>
+              <p class="card-desc" id="mk-topicos-nota" style="margin: 0.8rem 0 0" hidden></p>
             </div>
             <div class="card col-span-2">
               <div class="card-title">Metodologia — parâmetros desta análise</div>
@@ -1608,6 +1609,9 @@
 
       // ── TENDÊNCIAS (Mann-Kendall anual e sazonal, contagem e proporção) ──
       let serieAtual = null;
+      // below this average, "sem tendência" is almost always lack of data (tested on "feminicídio":
+      // topics with 15–35 speeches in 12 years)
+      const MIN_DISCURSOS_ANO = 3;
 
       function renderTendencias() {
         const T = D.tendencias;
@@ -1632,6 +1636,11 @@
           };
         });
 
+        const anosSerie = cob.meses / 12;
+        const porAno = (s) => s.total / anosSerie;
+        const poucos = (s) => porAno(s) < MIN_DISCURSOS_ANO;
+        const fmtAno = (s) => porAno(s).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+
         // "bancada" exists only for the spectra; the total and the topics fall back to the proportion
         const serieDe = (s) => (serieAtual === "bancada" && s.grupo !== "espectro" ? "proporcao" : serieAtual);
 
@@ -1652,7 +1661,11 @@
           .map((s) => {
             const cor = s.grupo === "geral" ? C.acc : espColor(s.nome);
             const r = s[serieDe(s)];
-            const aviso = serieDe(s) !== serieAtual ? '<span class="mk-na">proporção (não se aplica ao total)</span>' : "";
+            let aviso = serieDe(s) !== serieAtual ? '<span class="mk-na">proporção (não se aplica ao total)</span>' : "";
+            if (poucos(s)) {
+              aviso += `<span class="mk-na">Poucos discursos (~${fmtAno(s)} por ano): "sem tendência" aqui ` +
+                "provavelmente é falta de dados.</span>";
+            }
             return `
         <div class="mk-card">
           <div class="mk-card-title" style="color:${cor}">${esc(s.nome)}</div>${aviso}
@@ -1726,10 +1739,22 @@
           .sort((a, b) => b.total - a.total)
           .map((s) => {
             const r = s[serieDe(s)];
-            return `<tr><td title="${esc(s.nome)}">${esc(s.nome)}</td><td class="num">${s.total.toLocaleString("pt-BR")}</td>
+            const tag = poucos(s)
+              ? `<span class="tag tag-neu" style="margin: 0 0 0 0.4rem" title="~${fmtAno(s)} discursos por ano">poucos</span>`
+              : "";
+            return `<tr><td title="${esc(s.nome)}">${esc(s.nome)}</td><td class="num">${s.total.toLocaleString("pt-BR")}${tag}</td>
           ${cell(r?.anual)}${cell(r?.sazonal)}</tr>`;
           })
           .join("");
+
+        const nPoucos = series.filter((s) => s.grupo === "topico" && poucos(s)).length;
+        const nota = document.getElementById("mk-topicos-nota");
+        nota.hidden = !nPoucos;
+        nota.textContent = nPoucos
+          ? `${nPoucos} ${nPoucos === 1 ? "tópico tem" : "tópicos têm"} menos de ${MIN_DISCURSOS_ANO} discursos por ano ` +
+            "em média (marcados \"poucos\"). Neles, \"sem tendência\" quase sempre é falta de dados, e não sinal de " +
+            "estabilidade; e uma tendência significativa se apoia em poucos discursos, então confira os discursos antes de usá-la."
+          : "";
       }
 
       function testBlock(nome, r, tipo) {
