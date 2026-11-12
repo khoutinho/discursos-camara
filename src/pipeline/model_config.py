@@ -70,6 +70,11 @@ MMR_DIVERSITY = 0.3
 LABEL_WORDS = 5            # palavras no rótulo de cada tópico
 LABEL_MAX_SEQ_LENGTH = 512  # contexto do modelo usado só para escolher os rótulos (KeyBERTInspired)
 
+# mapa 2D dos discursos (topic_modeling.project_2d): só para visualização, não entra nos tópicos.
+# min_dist 0,1 (padrão do UMAP) espalha os pontos dentro de cada mancha; o agrupamento usa 0
+MAP_MIN_DIST = 0.1
+MAP_DECIMALS = 2           # coordenadas arredondadas no JSON
+
 # palavras características por espectro (statistics.characteristic_words)
 FW_TOP_N = 25              # palavras mostradas por espectro
 FW_MIN_DOCS = 5            # termo precisa aparecer em ≥5 discursos
@@ -250,6 +255,11 @@ def methodology(cfg: TopicModelConfig, n_docs: int | None = None) -> list[dict]:
          'repetia com outras sementes (testes de nov/2026).' if cfg.consensus else
          'Probabilidade mínima (pertencimento suave do HDBSCAN a cada tópico) para um discurso receber um '
          'tópico além do principal (coluna Topicos_multi).'),
+        ('Mapa 2D', 'projeção', f'UMAP, 2 dimensões, min_dist {_num(MAP_MIN_DIST)}, semente {CONSENSUS_SEED}',
+         f'Só para visualização: uma rodada de UMAP sobre os mesmos embeddings (n_neighbors {cfg.umap_n_neighbors}, '
+         'cosseno). Os tópicos vêm do agrupamento em '
+         f'{cfg.umap_n_components} dimensões, não do mapa. Discursos próximos no mapa são parecidos; distâncias '
+         'grandes e o tamanho das manchas não têm significado preciso.'),
         ('Vocabulário por espectro', 'palavras características',
          'log-odds com prior de Dirichlet informativo (Monroe, Colaresi & Quinn, 2008)',
          'Para cada espectro, o z-score do log-odds de cada palavra ou par de palavras contra os outros dois '

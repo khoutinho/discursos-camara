@@ -32,8 +32,8 @@ from umap import UMAP
 
 from .consensus import coassociation, consensus_labels, membership
 from .model_config import (
-    CONSENSUS_SEED, EMBEDDING_MODELS, KEYBERT_TOP_N, LABEL_MAX_SEQ_LENGTH, LABEL_WORDS, MIN_DF, MMR_DIVERSITY,
-    NGRAM_RANGE, TopicModelConfig, embedding_cache_key, methodology,
+    CONSENSUS_SEED, EMBEDDING_MODELS, KEYBERT_TOP_N, LABEL_MAX_SEQ_LENGTH, LABEL_WORDS, MAP_MIN_DIST, MIN_DF,
+    MMR_DIVERSITY, NGRAM_RANGE, TopicModelConfig, embedding_cache_key, methodology,
 )
 from .vocabulary import TOKEN_PATTERN, ContentVectorizer, excluded_words
 
@@ -262,6 +262,22 @@ class TopicModeler:
             'excluded_words': excluded,   # fora do vocabulário (reusado nas palavras características)
             'model': self.model,
         }
+
+    def project_2d(self) -> np.ndarray:
+        """
+        Coordenadas 2D dos discursos para o mapa do dashboard: uma rodada de UMAP com 2 componentes sobre
+        os embeddings do fit (mesmos n_neighbors e métrica do agrupamento, semente fixa). Só visualização:
+        os tópicos vêm do agrupamento em 5 dimensões, não deste mapa.
+        """
+        cfg = self.config
+        reducer = UMAP(
+            n_neighbors=min(cfg.umap_n_neighbors, len(self.embeddings) - 1),
+            n_components=2,
+            min_dist=MAP_MIN_DIST,
+            metric='cosine',
+            random_state=CONSENSUS_SEED,
+        )
+        return reducer.fit_transform(self.embeddings)
 
     def methodology(self) -> list[dict]:
         """Parâmetros usados em cada etapa, em formato de tabela (para o paper)."""

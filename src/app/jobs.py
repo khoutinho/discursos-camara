@@ -79,7 +79,7 @@ MIN_DOCS = 50
 # consensus rounds 0.6→0.85 (without consensus the bar jumps from 0.6 to 0.85)
 STAGE_PROGRESS = {
     "loading": 0.0, "totals": 0.02, "bancadas": 0.07, "embeddings": 0.1, "consensus": 0.6, "clustering": 0.85,
-    "reduce": 0.9, "statistics": 0.94,
+    "reduce": 0.9, "map": 0.92, "statistics": 0.94,
 }
 
 # transcripts are published with a delay; a month's total only counts as final this long after it ends
@@ -330,7 +330,8 @@ def estimate(conn, dataset_id: int, model: str, consenso: bool = True) -> dict:
         source = "referencia"
 
     embed = (n_docs - n_cached) * sec_per_doc
-    other = OTHER_STAGES_SEC + OTHER_STAGES_SEC_PER_DOC * n_docs
+    # + one UMAP round for the 2D map (about as long as a consensus round)
+    other = OTHER_STAGES_SEC + (OTHER_STAGES_SEC_PER_DOC + CONSENSUS_SEC_PER_DOC_RUN) * n_docs
     if consenso:
         other += CONSENSUS_SEC_PER_DOC_RUN * CONSENSUS_RUNS * n_docs
     return {

@@ -81,10 +81,13 @@ def analyze(
         df['Topico_certeza'] = np.round(results['certainty'], 3)
     df['Topicos_multi'] = ['; '.join(labels) for labels in results['multi_labels']]
 
+    _cb('map', 0.0)
+    coords = modeler.project_2d()
+
     _cb('statistics', 0.0)
     stats = compute_all_statistics(
         df, topics=topics, topic_labels=topic_labels, period=period, plenary_totals=plenary_totals,
-        bancadas=bancadas, keywords=keywords, vocab_excluded=results['excluded_words'],
+        bancadas=bancadas, keywords=keywords, vocab_excluded=results['excluded_words'], coords_2d=coords,
     )
 
     n = len(df)

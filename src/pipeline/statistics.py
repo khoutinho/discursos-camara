@@ -12,7 +12,7 @@ from scipy.spatial.distance import cosine
 from scipy.stats import pearsonr
 
 from .config import CONVIDADO, ESPECTRO, PARTIDO_GRAFIAS, STOPWORDS_DOMAIN
-from .model_config import FW_MIN_DOCS, FW_TOP_N, FW_Z_MIN, NGRAM_RANGE
+from .model_config import FW_MIN_DOCS, FW_TOP_N, FW_Z_MIN, MAP_DECIMALS, NGRAM_RANGE
 from .trends import MIN_YEARS_ANNUAL, complete_years, compute_trends, series_start
 from .vocabulary import TOKEN_PATTERN, ContentVectorizer, excluded_words, fold, ubiquitous_words
 
@@ -26,6 +26,7 @@ def compute_all_statistics(
     bancadas: list[dict] | None = None,
     keywords: list[str] | None = None,
     vocab_excluded: set[str] | None = None,
+    coords_2d: np.ndarray | None = None,
 ) -> dict:
     """
     Calcula todas as análises estatísticas.
@@ -40,6 +41,7 @@ def compute_all_statistics(
         keywords: keywords da busca (tabela keyword × tópico, com 2+ keywords).
         vocab_excluded: palavras fora do vocabulário dos rótulos (TopicModeler.fit); None = calcula
             (roda o spaCy em todos os discursos).
+        coords_2d: coordenadas do mapa 2D (TopicModeler.project_2d), mesma ordem de df; None = sem mapa.
 
     Returns:
         dict com todas as análises prontas pra exportação.
@@ -172,6 +174,8 @@ def compute_all_statistics(
         stats.update(_topic_statistics(df_with_topics, topic_labels, year_range))
         stats['keywords_por_topico'] = keywords_by_topic(df_with_topics, keywords, topic_labels)
         stats['mencoes_por_topico'] = mentions_by_topic(df_with_topics, keywords, topic_labels)
+        if coords_2d is not None:
+            stats['mapa'] = embedding_map(df_with_topics, coords_2d)
 
     return stats
 
@@ -209,6 +213,41 @@ def top_speakers(df: pd.DataFrame, n: int = 10) -> list[dict] | None:
             'outros_partidos': [{'partido': p, 'discursos': int(partidos[p])} for p in ordem[1:]],
         })
     return result
+
+
+def embedding_map(df: pd.DataFrame, coords: np.ndarray) -> dict:
+    """
+    Pontos do mapa 2D em colunas (uma lista por campo, um item por discurso): com 10.000 discursos,
+    uma lista de objetos repetiria os nomes dos campos 10.000 vezes. Orador, partido e espectro vão
+    como índices para as listas 'oradores', 'partidos' e 'espectros'; o tópico como id (o rótulo está
+    em 'topicos').
+    """
+    def codes(col: pd.Series) -> tuple[list[int], list[str]]:
+        cat = pd.Categorical(col.fillna('?').astype(str))
+        return cat.codes.tolist(), list(cat.categories)
+
+    oradores = df['Orador'].map(lambda s: _display_name(str(s)) if pd.notna(s) else '?') \
+        if 'Orador' in df.columns else pd.Series('?', index=df.index)
+    orador_idx, orador_list = codes(oradores)
+    partido_idx, partido_list = codes(df['Partido'])
+    espectro_idx, espectro_list = codes(df['Espectro'])
+    labels = df.drop_duplicates('Topico').set_index('Topico')['Topico_label']
+    return {
+        'x': np.round(coords[:, 0], MAP_DECIMALS).tolist(),
+        'y': np.round(coords[:, 1], MAP_DECIMALS).tolist(),
+        'topico': df['Topico'].astype(int).tolist(),
+        'topicos': {str(int(t)): str(l) for t, l in labels.items()},
+        'espectro': espectro_idx, 'espectros': espectro_list,
+        'orador': orador_idx, 'oradores': orador_list,
+        'partido': partido_idx, 'partidos': partido_list,
+        'data': df['Data_dt'].dt.strftime('%d/%m/%Y').tolist(),
+    }
+
+
+def _display_name(nome: str) -> str:
+    """Nome só em maiúsculas ganha as iniciais maiúsculas; os outros ficam como estão."""
+    nome = nome.strip()
+    return _title_name(nome) if nome == nome.upper() else nome
 
 
 _NAME_PARTICLES = {'da', 'de', 'do', 'das', 'dos', 'e'}

@@ -677,6 +677,41 @@
         color: var(--accent);
       }
 
+      .mapa-controles {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.6rem 1rem;
+        margin-bottom: 0.8rem;
+      }
+
+      .mapa-destaque {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font: 500 0.72rem "IBM Plex Sans", sans-serif;
+        color: var(--dim);
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .mapa-destaque select {
+        background: var(--surface);
+        color: var(--text);
+        border: 1px solid var(--border2);
+        border-radius: 6px;
+        padding: 0.35rem 0.5rem;
+        font: 0.72rem "IBM Plex Sans", sans-serif;
+        max-width: min(32rem, 100%);
+        min-width: 0;
+      }
+
+      .mapa-wrap {
+        position: relative;
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+
       .seg button:disabled {
         opacity: 0.4;
         cursor: not-allowed;
@@ -907,6 +942,27 @@
                 Frequência dos tópicos — proporção no corpus
               </div>
               <div id="topic-bars-geral" class="topic-list"></div>
+            </div>
+            <div class="card col-span-2" id="card-mapa">
+              <div class="card-title">Mapa dos discursos</div>
+              <p class="card-desc" id="mapa-desc">
+                Cada ponto é um discurso, colocado pela semelhança do seu embedding com os outros
+                (projeção UMAP em 2 dimensões). Discursos próximos falam de coisas parecidas; já a
+                distância entre manchas afastadas e o tamanho de cada mancha não têm significado preciso.
+                Os tópicos vêm do agrupamento em 5 dimensões, não deste mapa: um tópico pode aparecer
+                partido em mais de uma mancha.
+              </p>
+              <div class="mapa-controles" id="mapa-controles">
+                <div class="seg" role="radiogroup" aria-label="Cor dos pontos">
+                  <button role="radio" data-mapa-cor="topico">Cor por tópico</button>
+                  <button role="radio" data-mapa-cor="espectro">Cor por espectro</button>
+                </div>
+                <label class="mapa-destaque">
+                  Destacar
+                  <select id="mapa-topico"></select>
+                </label>
+              </div>
+              <div class="mapa-wrap" id="mapa-wrap"><canvas id="ch-mapa"></canvas></div>
             </div>
             <div class="card">
               <div class="card-title">Tópicos por espectro político (%)</div>
@@ -1259,7 +1315,7 @@
 
         // each step on its own: a failure in one tab must not blank the others
         const failed = [];
-        for (const step of [renderHeader, renderStats, renderGeral, renderEspectro, renderTopicos,
+        for (const step of [renderHeader, renderStats, renderGeral, renderEspectro, renderTopicos, renderMapa,
                             renderRegioes, renderPartidos, renderVocab, renderEstatisticas, bindTabs, addPngButtons]) {
           try {
             step();
@@ -1462,6 +1518,125 @@
       // ── TÓPICOS ──────────────────────────────────────────────────────────
       // full topic label in the tooltip title; axis/legend labels are shortened
       const fullTitle = (labels) => ({ tooltip: { callbacks: { title: (items) => labels[items[0].dataIndex] } } });
+
+      // ── MAPA 2D ──────────────────────────────────────────────────────────
+      let mapaCor = "topico";
+      // distinct colors for many topics (the 10-color palette would repeat): golden-angle hues
+      const topicColor = (i) => `hsl(${Math.round((i * 137.508) % 360)}, 70%, 62%)`;
+      const MAPA_CINZA = "rgba(107, 117, 146, 0.18)";
+
+      function renderMapa() {
+        const M = D.mapa;
+        const desc = document.getElementById("mapa-desc");
+        if (!M) {
+          document.getElementById("mapa-controles").hidden = true;
+          document.getElementById("mapa-wrap").hidden = true;
+          desc.textContent = "Esta análise foi gerada antes do mapa. Rode a análise de novo para ver o mapa dos discursos.";
+          return;
+        }
+        const n = M.x.length;
+        const ids = Object.keys(M.topicos).map(Number).sort((a, b) => a - b);
+        const select = document.getElementById("mapa-topico");
+        if (!select.options.length) {
+          select.innerHTML =
+            '<option value="">nenhum tópico</option>' +
+            ids.map((t) => `<option value="${t}">${esc(M.topicos[t])}</option>`).join("");
+          select.onchange = renderMapa;
+        }
+        const destaque = select.value === "" ? null : Number(select.value);
+        document.querySelectorAll("[data-mapa-cor]").forEach((b) => {
+          b.setAttribute("aria-checked", String(b.dataset.mapaCor === mapaCor));
+          b.onclick = () => {
+            mapaCor = b.dataset.mapaCor;
+            renderMapa();
+          };
+        });
+
+        // one dataset per topic or spectrum; with a highlighted topic, the other speeches go grey, drawn first
+        const groups = new Map();
+        const outros = [];
+        for (let i = 0; i < n; i++) {
+          const p = { x: M.x[i], y: M.y[i], i };
+          if (destaque !== null && M.topico[i] !== destaque) {
+            outros.push(p);
+            continue;
+          }
+          const key = mapaCor === "topico" ? M.topico[i] : M.espectros[M.espectro[i]];
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(p);
+        }
+        const radius = n > 5000 ? 1.6 : 2.4;
+        const keys =
+          mapaCor === "topico"
+            ? ids.filter((t) => groups.has(t))
+            : [...ESPECTROS, "Sem classificação"].filter((e) => groups.has(e));
+        const datasets = keys.map((k) => {
+          const color = mapaCor === "topico" ? topicColor(ids.indexOf(k)) : espColor(k);
+          return {
+            label: mapaCor === "topico" ? M.topicos[k] : k,
+            data: groups.get(k),
+            backgroundColor: color,
+            borderColor: color,
+            pointRadius: destaque !== null ? radius + 0.8 : radius,
+            pointHoverRadius: radius + 2.5,
+          };
+        });
+        if (outros.length) {
+          datasets.unshift({
+            label: "outros tópicos",
+            data: outros,
+            backgroundColor: MAPA_CINZA,
+            borderColor: MAPA_CINZA,
+            pointRadius: radius - 0.6,
+            pointHoverRadius: radius + 1,
+          });
+        }
+
+        // same scale on both axes (UMAP has no preferred direction): the chart takes the data's aspect
+        // ratio, within limits, and the shorter axis is padded to match
+        const range = (v) => [Math.min(...v), Math.max(...v)];
+        const [x0, x1] = range(M.x);
+        const [y0, y1] = range(M.y);
+        const pad = 0.03 * Math.max(x1 - x0, y1 - y0);
+        let w = x1 - x0 + 2 * pad;
+        let h = y1 - y0 + 2 * pad;
+        const aspect = Math.min(Math.max(w / h, 1), 2.2);
+        if (w / h < aspect) w = h * aspect;
+        else h = w / aspect;
+        const cx = (x0 + x1) / 2;
+        const cy = (y0 + y1) / 2;
+
+        const canvas = document.getElementById("ch-mapa");
+        Chart.getChart(canvas)?.destroy();
+        new Chart(canvas, {
+          type: "scatter",
+          data: { datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            aspectRatio: aspect,
+            animation: false,
+            interaction: { mode: "nearest", intersect: true },
+            scales: {
+              x: { display: false, min: cx - w / 2, max: cx + w / 2 },
+              y: { display: false, min: cy - h / 2, max: cy + h / 2 },
+            },
+            plugins: {
+              // 29+ topics do not fit a legend: the "Destacar" select does that job
+              legend: { display: mapaCor === "espectro", labels: { usePointStyle: true, boxWidth: 8 } },
+              tooltip: {
+                callbacks: {
+                  title: (items) => {
+                    const i = items[0].raw.i;
+                    return `${M.oradores[M.orador[i]]} (${M.partidos[M.partido[i]]}) · ${M.data[i]}`;
+                  },
+                  label: (c) => M.topicos[M.topico[c.raw.i]],
+                },
+              },
+            },
+          },
+        });
+      }
 
       function renderTopicos() {
         const freq = D.topicos_freq || [];
@@ -1810,7 +1985,7 @@
       function renderTendencias() {
         const T = D.tendencias;
         const cob = T.cobertura;
-        const buttons = document.querySelectorAll(".seg button");
+        const buttons = document.querySelectorAll(".seg button[data-serie]");
         if (!serieAtual) serieAtual = cob.proporcao_disponivel ? "proporcao" : "contagem";
         if (serieAtual === "bancada" && !cob.bancada_disponivel) serieAtual = "proporcao";
         buttons.forEach((b) => {
