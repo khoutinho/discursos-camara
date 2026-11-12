@@ -150,7 +150,7 @@ src/
   pipeline/   limpeza, embeddings, BERTopic, estatísticas e tendências
   app/        API FastAPI, banco SQLite, jobs em segundo plano e as duas telas
 assets/       imagens deste README
-arquivos/, csvs/   versão anterior do projeto (legado)
+legado/       versão anterior do projeto; em legado/extras/, os CSVs antigos e o benchmark de scraping da Fase 2
 ```
 
 Os dados (banco, embeddings, resultados) ficam em `data/`, fora do git.

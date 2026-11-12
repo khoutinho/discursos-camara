@@ -3,7 +3,7 @@
 Orquestrador do pipeline NLP.
 
 Uso:
-    python -m src.pipeline.run --input csvs/discursos_completo2.csv --output output/
+    python -m src.pipeline.run --input discursos.csv --output output/
 
 Opções:
     --input         Caminho do CSV de entrada
