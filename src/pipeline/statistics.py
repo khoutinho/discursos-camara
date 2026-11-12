@@ -12,7 +12,7 @@ from scipy.spatial.distance import cosine
 from scipy.stats import pearsonr
 
 from .config import STOPWORDS_DOMAIN
-from .trends import MIN_YEARS_ANNUAL, complete_years, compute_trends
+from .trends import MIN_YEARS_ANNUAL, complete_years, compute_trends, series_start
 from .vocabulary import fold, ubiquitous_words
 
 
@@ -74,8 +74,10 @@ def compute_all_statistics(
     )
 
     # ── Correlação de Pearson entre espectros (anos completos) ──
+    # same start as the trends: years before the first speech would be zeros for every spectrum
+    # and inflate the correlation
     pearson_results = []
-    years = complete_years(inicio, fim)
+    years = complete_years(series_start(df, inicio), fim)
     evo_esp = evo_esp.reindex(years, fill_value=0)
     cols = [c for c in espectros if c in evo_esp.columns] if len(years) >= MIN_YEARS_ANNUAL else []
     for i, e1 in enumerate(cols):
