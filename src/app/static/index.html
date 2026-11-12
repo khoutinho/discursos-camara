@@ -112,6 +112,7 @@
         outline-offset: 2px;
       }
       input[type="range"] { width: 100%; accent-color: var(--accent); }
+      input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
       .date-field { position: relative; display: flex; gap: 0.4rem; }
       .date-field input[type="text"] { font-family: "IBM Plex Mono", monospace; font-size: 0.85rem; }
       .date-field input[aria-invalid="true"] { border-color: var(--error); }
@@ -228,6 +229,7 @@
       .stages li.current::before { content: "◐"; color: var(--accent); }
       .stages li.done::before { content: "●"; color: var(--accent); }
 
+      #model-estimate { margin: 0 0 1rem; }
       .msg { border-left: 3px solid var(--accent); background: var(--surface2); padding: 0.6rem 0.8rem; border-radius: 0 6px 6px 0; font-size: 0.8rem; margin-top: 0.8rem; }
       .msg.warn { border-left-color: var(--warn); }
       .msg.error { border-left-color: var(--error); }
@@ -446,9 +448,10 @@
               </label>
               <select id="embedding-model"></select>
               <p class="hint" id="model-desc"></p>
-              <div id="model-estimate" class="msg" hidden></div>
             </div>
           </div>
+          <!-- full width: it is information to read before running, not a tooltip -->
+          <div id="model-estimate" class="msg" hidden></div>
           <div class="field">
             <label class="inline">
               <input type="checkbox" id="consenso" /> Tópicos de consenso (15 rodadas)
