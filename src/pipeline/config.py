@@ -60,8 +60,8 @@ ESPECTRO = {
     'PEN': 'Direita',               # virou PATRIOTA (2018)
     'MOBILIZA': 'Esquerda',         # ex-PMN (2023)
     'AGIR': 'Centro-direita',       # ex-PTC (2022)
-    # Classificação própria, a revisar
-    'PSDC': 'Centro-direita', 'DC': 'Centro-direita',  # Democracia Cristã
+    # Fora da classificação de Bolognesi et al.: classificação dos autores (revisada em nov/2026)
+    'PSDC': 'Centro', 'DC': 'Centro',  # Democracia Cristã
     'MISSÃO': 'Direita',            # Partido Missão (2025)
 }
 
