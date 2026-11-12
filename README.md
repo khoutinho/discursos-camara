@@ -132,7 +132,7 @@ A aba **Estatísticas** do dashboard e o endpoint `/api/methodology` exportam os
 ### Limitações conhecidas
 
 - **Estabilidade:** com outra semente do UMAP, parte dos discursos muda de tópico. Compare rodadas antes de tirar conclusões sobre tópicos pequenos.
-- **Menções de passagem:** muitos discursos citam a keyword uma única vez, e o tópico deles reflete o assunto principal do discurso (homenagens, política local), não o tema pesquisado.
+- **Menções de passagem:** muitos discursos citam a keyword uma única vez, e o tópico deles reflete o assunto principal do discurso (homenagens, política local), não o tema pesquisado. Na tabela de tendência por tópico (aba Estatísticas), o switch "Mostrar menções do termo por tópico" mostra a mediana de menções e o % de discursos que citam o termo uma vez só; nenhum discurso é excluído (análises feitas antes desta opção precisam rodar de novo).
 - **Tópicos pequenos** (15–30 discursos em uma década) quase sempre dão "sem tendência" por falta de dados.
 - **Bancadas:** a proporção ÷ bancada usa as cadeiras na posse; trocas de partido durante o mandato não entram. Em 1999–2003 a API não tem o histórico dos deputados e a fatia é aproximada (inclui suplentes).
 

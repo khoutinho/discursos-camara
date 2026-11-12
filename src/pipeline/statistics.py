@@ -161,6 +161,7 @@ def compute_all_statistics(
         df_with_topics['Topico_label'] = df_with_topics['Topico'].map(topic_labels)
         stats.update(_topic_statistics(df_with_topics, topic_labels, year_range))
         stats['keywords_por_topico'] = keywords_by_topic(df_with_topics, keywords, topic_labels)
+        stats['mencoes_por_topico'] = mentions_by_topic(df_with_topics, keywords, topic_labels)
 
     return stats
 
@@ -202,6 +203,32 @@ def keywords_by_topic(df: pd.DataFrame, keywords: list[str], topic_labels: dict[
     for tid, n in df.loc[df['Topico'] != -1, 'Topico'].value_counts().items():
         rows.append({'topico': topic_labels.get(tid, str(tid)), 'n': int(n), 'pct': pcts(df['Topico'] == tid)})
     return {'keywords': keywords, 'geral': pcts(slice(None)), 'topicos': rows}
+
+
+def mentions_by_topic(df: pd.DataFrame, keywords: list[str], topic_labels: dict[int, str]) -> dict | None:
+    """
+    Quantas vezes cada discurso cita as keywords da busca, resumido por tópico (principal).
+
+    Discursos que citam o termo uma vez só costumam ser sobre outro assunto (homenagens,
+    posses, eleições) e formam tópicos próprios; a contagem mostra quais são. Conta no texto
+    limpo (sem cabeçalho nem falas de outros oradores), sem diferenciar acento e plural, e soma
+    todas as keywords. Nenhum discurso é filtrado: um discurso sobre o tema pode citar o termo
+    uma vez e usar outras palavras ("violência contra a mulher", "Maria da Penha").
+    """
+    keywords = [k for k in dict.fromkeys(k.strip() for k in keywords or []) if k]
+    col = 'Texto_modelo' if 'Texto_modelo' in df.columns else 'Discurso'
+    if not keywords or col not in df.columns:
+        return None
+    texts = df[col].fillna('').map(fold)
+    counts = sum(texts.str.count(keyword_pattern(k)) for k in keywords)
+
+    def summary(c: pd.Series) -> dict:
+        return {'n': int(len(c)), 'mediana': float(c.median()), 'pct_uma': round(float((c == 1).mean() * 100), 1)}
+
+    valid = df['Topico'] != -1
+    rows = [{'topico': topic_labels.get(tid, str(tid)), **summary(counts[df['Topico'] == tid])}
+            for tid in df.loc[valid, 'Topico'].unique()]
+    return {'keywords': keywords, 'geral': summary(counts), 'topicos': rows}
 
 
 def _topic_statistics(

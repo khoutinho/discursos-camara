@@ -654,6 +654,65 @@
         cursor: not-allowed;
       }
 
+      .switch {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0 0 0.8rem;
+        font: 500 0.72rem "IBM Plex Sans", sans-serif;
+        color: var(--dim);
+        cursor: pointer;
+      }
+
+      .switch input {
+        position: absolute;
+        opacity: 0;
+        width: 1px;
+        height: 1px;
+      }
+
+      .switch-track {
+        position: relative;
+        width: 1.9rem;
+        height: 1.05rem;
+        border: 1px solid var(--border2);
+        border-radius: 999px;
+        flex: none;
+        transition: background 0.15s;
+      }
+
+      .switch-track::after {
+        content: "";
+        position: absolute;
+        top: 0.15rem;
+        left: 0.15rem;
+        width: 0.65rem;
+        height: 0.65rem;
+        border-radius: 50%;
+        background: var(--dim);
+        transition: transform 0.15s, background 0.15s;
+      }
+
+      .switch input:checked + .switch-track {
+        background: rgba(0, 229, 176, 0.12);
+        border-color: var(--accent);
+      }
+
+      .switch input:checked + .switch-track::after {
+        transform: translateX(0.85rem);
+        background: var(--accent);
+      }
+
+      .switch input:focus-visible + .switch-track {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .switch:has(input:disabled) {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
       .mk-test {
         display: grid;
         grid-template-columns: 4.2rem 1fr;
@@ -969,11 +1028,19 @@
               <div class="card-title">
                 Tendência de cada tópico — <span id="mk-topicos-serie"></span>
               </div>
+              <label class="switch" id="mencoes-switch">
+                <input type="checkbox" id="mencoes-toggle" />
+                <span class="switch-track" aria-hidden="true"></span>
+                Mostrar menções do termo por tópico
+              </label>
+              <p class="card-desc" id="mencoes-desc" hidden></p>
               <div class="tbl-wrap">
                 <table>
                   <thead>
                     <tr>
                       <th>Tópico</th><th class="num">Discursos</th>
+                      <th class="num mencoes-col" hidden title="Mediana de menções do termo por discurso">Menções (mediana)</th>
+                      <th class="num mencoes-col" hidden title="% dos discursos do tópico que citam o termo uma vez só">1 menção</th>
                       <th>Anual</th><th class="num">p</th><th class="num">τ</th>
                       <th>Sazonal</th><th class="num">p</th><th class="num">τ</th>
                     </tr>
@@ -1734,6 +1801,38 @@
           const [label, cls, icon] = trendOf(r.tendencia);
           return `<td class="${cls}">${esc(label)}${icon}</td><td class="num">${num(r.p, 4)}</td><td class="num">${num(r.tau, 3)}</td>`;
         };
+        // mentions of the search term per topic: shown on demand, nothing is filtered
+        const M = D.mencoes_por_topico;
+        const mencoesDe = new Map((M?.topicos || []).map((t) => [t.topico, t]));
+        const toggle = document.getElementById("mencoes-toggle");
+        toggle.disabled = !M;
+        if (!M) toggle.checked = false;
+        document.getElementById("mencoes-switch").title = M
+          ? ""
+          : "A contagem de menções não está nesta análise (gerada antes desta opção, ou sem keywords). Rode a análise de novo.";
+        toggle.onchange = renderTendencias;
+        const comMencoes = toggle.checked;
+        document.querySelectorAll(".mencoes-col").forEach((th) => (th.hidden = !comMencoes));
+        const desc = document.getElementById("mencoes-desc");
+        desc.hidden = !comMencoes;
+        const br = (v, d) => Number(v).toLocaleString("pt-BR", { maximumFractionDigits: d });
+        if (comMencoes) {
+          const pctFmt = (v) => br(v, 0) + "%";
+          const termos = M.keywords.map((k) => `"${esc(k)}"`).join(", ");
+          desc.innerHTML =
+            `Quantas vezes cada discurso cita ${termos} (no texto do orador, sem diferenciar acento e plural). ` +
+            `No corpus: mediana de ${br(M.geral.mediana, 1)}; ${pctFmt(M.geral.pct_uma)} dos discursos citam uma vez só. ` +
+            "Um tópico em que a maioria cita o termo uma vez costuma ser sobre outro assunto (homenagens, posses, " +
+            "eleições) e só menciona o tema de passagem. Nenhum discurso é excluído: há discursos sobre o tema que " +
+            "citam o termo uma vez e usam outras palavras (\"violência contra a mulher\", \"Maria da Penha\").";
+        }
+        const mencoesCells = (s) => {
+          if (!comMencoes) return "";
+          const m = mencoesDe.get(s.nome);
+          if (!m) return '<td class="num">—</td><td class="num">—</td>';
+          return `<td class="num">${br(m.mediana, 1)}</td><td class="num">${br(m.pct_uma, 0)}%</td>`;
+        };
+
         document.getElementById("tbl-mk-topicos-body").innerHTML = series
           .filter((s) => s.grupo === "topico")
           .sort((a, b) => b.total - a.total)
@@ -1743,7 +1842,7 @@
               ? `<span class="tag tag-neu" style="margin: 0 0 0 0.4rem" title="~${fmtAno(s)} discursos por ano">poucos</span>`
               : "";
             return `<tr><td title="${esc(s.nome)}">${esc(s.nome)}</td><td class="num">${s.total.toLocaleString("pt-BR")}${tag}</td>
-          ${cell(r?.anual)}${cell(r?.sazonal)}</tr>`;
+          ${mencoesCells(s)}${cell(r?.anual)}${cell(r?.sazonal)}</tr>`;
           })
           .join("");
 
