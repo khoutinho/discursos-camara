@@ -241,18 +241,24 @@ def _parse_row(cols) -> dict | None:
     }
 
 
-def _parse_orador(raw: str) -> tuple[str, str, str]:
-    """Extrai nome, partido e estado do campo orador."""
-    parts = re.split(r"[,\-]", raw)
-    parts = [p.strip() for p in parts if p.strip()]
+# deputies come as "NOME, PARTIDO-UF" ("CABO DACIOLO, S.PART.-RJ")
+_DEPUTADO = re.compile(r"^(?P<nome>.+?)\s*,\s*(?P<partido>[^,]+?)\s*-\s*(?P<uf>[A-Z]{2})$")
+CONVIDADO = "CONVIDADO"
 
-    if len(parts) >= 3:
-        return parts[0], parts[-2], parts[-1]
-    elif len(parts) == 2:
-        return parts[0], parts[1], ""
-    elif len(parts) == 1:
-        return parts[0], "SEM PARTIDO", ""
-    return "SEM NOME", "SEM PARTIDO", ""
+
+def _parse_orador(raw: str) -> tuple[str, str, str]:
+    """
+    Extrai nome, partido e estado do campo orador.
+
+    Quem não está no formato de deputado é convidado (sessões solenes, comissões gerais):
+    "DILMA ROUSSEFF, MINISTRA-CHEFE DA CASA CIVIL", "MÁRCIA ROLLEMBERG (PRIMEIRA-DAMA ...)".
+    O texto inteiro fica como nome, porque o cargo identifica a pessoa, e o partido é CONVIDADO.
+    """
+    raw = " ".join(raw.split())
+    m = _DEPUTADO.match(raw)
+    if m:
+        return m["nome"], m["partido"], m["uf"]
+    return raw or "SEM NOME", CONVIDADO, ""
 
 
 def _extract_speech_text(html_str: str) -> str:
