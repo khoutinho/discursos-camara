@@ -34,12 +34,14 @@ from umap import UMAP
 
 from .config import STOPWORDS_DOMAIN
 from .consensus import coassociation, consensus_labels, membership
-from .model_config import CONSENSUS_SEED, EMBEDDING_MODELS, TopicModelConfig, embedding_cache_key, methodology
+from .model_config import (
+    CONSENSUS_SEED, EMBEDDING_MODELS, KEYBERT_TOP_N, LABEL_MAX_SEQ_LENGTH, LABEL_WORDS, MIN_DF, MMR_DIVERSITY,
+    NGRAM_RANGE, TopicModelConfig, embedding_cache_key, methodology,
+)
 from .vocabulary import TOKEN_PATTERN, non_content_words, ubiquitous_words
 
 warnings.filterwarnings('ignore')
 
-LABEL_MAX_SEQ_LENGTH = 512  # contexto do modelo usado só para escolher os rótulos (KeyBERTInspired)
 
 # Verbo com pronome oblíquo ("criticá-la", "tornou-se", "fazê-lo-ia"): o separador de palavras corta
 # no hífen e sobraria o verbo truncado ("criticá"); a forma inteira sai do vocabulário (é verbo).
@@ -219,15 +221,15 @@ class TopicModeler:
                 STOPWORDS_DOMAIN | ubiquitous_words(docs_list, STOPWORDS_DOMAIN) | non_content_words(docs_list)
             ),
             token_pattern=TOKEN_PATTERN,
-            min_df=2,
-            ngram_range=(1, 2),
+            min_df=MIN_DF,
+            ngram_range=NGRAM_RANGE,
         )
 
         ctfidf = ClassTfidfTransformer(reduce_frequent_words=True)
 
         representation = [
-            KeyBERTInspired(top_n_words=10),
-            MaximalMarginalRelevance(diversity=0.3),
+            KeyBERTInspired(top_n_words=KEYBERT_TOP_N),
+            MaximalMarginalRelevance(diversity=MMR_DIVERSITY),
         ]
 
         self.model = BERTopic(
@@ -334,7 +336,7 @@ class TopicModeler:
                 continue
             words = self.model.get_topic(topic_id)
             if words:
-                top_words = ' | '.join(w for w, _ in words[:5])
+                top_words = ' | '.join(w for w, _ in words[:LABEL_WORDS])
                 labels[topic_id] = f"T{topic_id}: {top_words}"
         return labels
 

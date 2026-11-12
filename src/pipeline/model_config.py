@@ -62,6 +62,14 @@ CONSENSUS_RUNS = 15
 CONSENSUS_SEED = 42      # sementes 42, 43, …; uma rodada só usa a 42
 CONSENSUS_CUT = 0.5      # tópico = discursos juntos em mais desta fração das rodadas
 
+# vocabulário e rótulos (usados em topic_modeling.py e documentados em methodology())
+NGRAM_RANGE = (1, 2)
+MIN_DF = 2                 # termo precisa aparecer em ≥2 tópicos
+KEYBERT_TOP_N = 10
+MMR_DIVERSITY = 0.3
+LABEL_WORDS = 5            # palavras no rótulo de cada tópico
+LABEL_MAX_SEQ_LENGTH = 512  # contexto do modelo usado só para escolher os rótulos (KeyBERTInspired)
+
 
 def embedding_cache_key(model_key: str) -> str:
     """Chave do cache de embeddings: muda quando o modelo, os trechos ou a limpeza do texto mudam."""
@@ -121,43 +129,65 @@ class TopicModelConfig:
         return max(self.spec.min_cluster_size, round(n_docs * MIN_CLUSTER_SHARE))
 
 
+def _num(v):
+    """Número no formato do português (0,2), para a tabela ir direto para o paper."""
+    return str(v).replace('.', ',') if isinstance(v, float) else v
+
+
 def methodology(cfg: TopicModelConfig, n_docs: int | None = None) -> list[dict]:
-    """Parâmetros usados em cada etapa, em formato de tabela (n_docs: discursos analisados, se já se sabe)."""
-    reduce = str(cfg.nr_topics) if cfg.nr_topics is not None else 'sem redução'
+    """
+    Parâmetros de cada etapa, da coleta às estatísticas, em formato de tabela (para o paper).
+
+    n_docs: discursos analisados, se já se sabe (mostra o min_cluster_size calculado).
+    """
+    # leve: só constantes; trends/preprocessing não carregam PyTorch
+    from .config import ESPECTRO
+    from .trends import MIN_MONTHS_SEASONAL, MIN_YEARS_ANNUAL
+
     spec = cfg.spec
+    reduce = str(cfg.nr_topics) if cfg.nr_topics is not None else 'sem redução'
     chunks = (f'{spec.chunk_words} palavras' if spec.chunk_words
               else f'não (lê os primeiros {spec.max_seq_length} tokens)')
     if cfg.min_cluster_size is not None:
         mcs = cfg.min_cluster_size
     elif n_docs is not None:
-        mcs = f'{cfg.resolved_min_cluster_size(n_docs)} (máx. entre {spec.min_cluster_size} e 1% de {n_docs} discursos)'
+        mcs = (f'{cfg.resolved_min_cluster_size(n_docs)} (máx. entre {spec.min_cluster_size} e 1% de '
+               f'{n_docs:,} discursos)'.replace(',', '.'))
     else:
         mcs = f'máx. entre {spec.min_cluster_size} e 1% dos discursos'
+    per_round = ' Roda em cada rodada do consenso.' if cfg.consensus else ''
     if cfg.consensus:
         seeds = f'{CONSENSUS_SEED}–{CONSENSUS_SEED + cfg.consensus_runs - 1}'
-        seeds_desc = 'Uma semente fixa por rodada do consenso (ver "Consenso"), para o resultado ser reprodutível.'
+        seeds_desc = 'Uma semente fixa por rodada do consenso, para o resultado ser reprodutível.'
     else:
         seeds, seeds_desc = CONSENSUS_SEED, 'Semente fixa para tornar o resultado reprodutível.'
+
     rows = [
-        ('Pré-processamento', 'Limpeza do texto', f'v{CLEANING_VERSION}',
-         'Antes do embedding e do vocabulário, remove o cabeçalho do orador, falas da Presidência e apartes, '
-         'marcações da sessão (palmas, microfone), vocativos e cumprimentos de abertura, "Era o que tinha a dizer" '
-         'e pedidos de divulgação. O texto original fica guardado.'),
-        ('Embeddings', 'Modelo', spec.hf_name,
+        ('Coleta', 'fonte', 'SitaQWeb (Câmara dos Deputados)',
+         'Busca no texto das notas taquigráficas do Plenário (inclui as sessões de Comissão Geral). Keywords com '
+         'acento são buscadas também sem acento, porque o índice do SitaQWeb mudou no fim de 2022 (sem acento, a '
+         'busca só acha discursos de 2023 em diante). Antes de 2000, só parte dos discursos aparece na busca.'),
+        ('Pré-processamento', 'limpeza do texto', f'v{CLEANING_VERSION}',
+         'Antes do embedding e do vocabulário, fica só a fala do orador: saem o cabeçalho, as marcações de '
+         'discurso entregue por escrito, as falas da Presidência e os apartes, as marcações da sessão (palmas, '
+         'microfone), os vocativos e cumprimentos de abertura, "Era o que tinha a dizer" e os pedidos de '
+         'divulgação. O texto original fica guardado.'),
+        ('Embeddings', 'modelo', spec.hf_name,
          'Sentence-transformer que converte cada discurso (texto limpo, com acentos) em um vetor numérico.'),
         ('Embeddings', 'max_seq_length', spec.max_seq_length, 'Tokens lidos de cada trecho.'),
         ('Embeddings', 'trechos', chunks,
          'O discurso é dividido em trechos que cabem no modelo; o embedding do discurso é a média dos '
          'embeddings dos trechos (normalizada).'),
         ('UMAP', 'n_neighbors', cfg.umap_n_neighbors,
-         'Quantos vizinhos cada discurso considera ao reduzir a dimensão; valores maiores priorizam a estrutura global.'),
+         'Quantos vizinhos cada discurso considera ao reduzir a dimensão; valores maiores priorizam a estrutura '
+         'global.' + per_round),
         ('UMAP', 'n_components', cfg.umap_n_components, 'Número de dimensões após a redução.'),
         ('UMAP', 'min_dist', cfg.umap_min_dist, 'Distância mínima entre pontos; 0 favorece grupos compactos.'),
         ('UMAP', 'metric', 'cosine', 'Medida de similaridade entre embeddings.'),
         ('UMAP', 'random_state', seeds, seeds_desc),
         ('HDBSCAN', 'min_cluster_size', mcs,
          'Tamanho mínimo de um tópico; grupos menores viram ruído. Proporcional ao corpus, para o número de '
-         'tópicos não crescer só porque a coleta é maior.'),
+         'tópicos não crescer só porque a coleta é maior.' + per_round),
         ('HDBSCAN', 'cluster_selection_method', spec.cluster_selection_method,
          'Como o HDBSCAN escolhe os tópicos na hierarquia de grupos: "eom" fica com os grupos mais estáveis '
          '(pode juntar quase tudo em um só quando os embeddings são muito parecidos); "leaf" fica com os '
@@ -171,22 +201,25 @@ def methodology(cfg: TopicModelConfig, n_docs: int | None = None) -> list[dict]:
              'UMAP → HDBSCAN rodam com uma semente diferente em cada rodada. Para cada par de discursos, conta-se '
              'a fração das rodadas em que os dois ficaram no mesmo grupo (matriz de coassociação; ruído não conta '
              'como junto). Com uma rodada só, parte dos discursos muda de tópico quando a semente muda.'),
-            ('Consenso', 'agrupamento', f'ligação média, corte em {CONSENSUS_CUT}',
+            ('Consenso', 'agrupamento', f'ligação média, corte em {_num(CONSENSUS_CUT)}',
              f'Os tópicos são os grupos de discursos que ficam juntos em mais de {CONSENSUS_CUT:.0%} das rodadas '
              '(agrupamento hierárquico sobre 1 − coassociação). Grupos menores que min_cluster_size ficam sem '
-             'tópico, como o ruído do HDBSCAN.'),
+             'tópico. O BERTopic recebe esses tópicos prontos e só calcula os rótulos.'),
             ('Consenso', 'certeza', 'coluna Topico_certeza',
              'Fração das rodadas em que o discurso ficou junto dos discursos do próprio tópico. Baixa nos '
              'discursos sem consenso levados ao tópico mais próximo.'),
         ]
     rows += [
-        ('Ruído', 'reduce_outliers', 'embeddings' if cfg.reduce_outliers else 'não',
-         f'Discursos sem tópico ({"sem consenso" if cfg.consensus else "ruído do HDBSCAN"}) são atribuídos ao tópico '
-         'cujo centróide de embeddings é mais similar. A coluna Topico_reatribuido do CSV marca esses discursos.'),
+        ('Discursos sem tópico', 'reduce_outliers', 'embeddings' if cfg.reduce_outliers else 'não',
+         f'Discursos sem tópico ({"sem consenso" if cfg.consensus else "ruído do HDBSCAN"}) vão para o tópico cujo '
+         'centróide de embeddings é mais similar. A coluna Topico_reatribuido do CSV marca esses discursos.'),
         ('Redução de tópicos', 'nr_topics', reduce,
          'Número alvo de tópicos; o BERTopic une os tópicos mais parecidos até chegar nele.'),
-        ('Vocabulário (c-TF-IDF)', 'ngram_range', '(1, 2)', 'Considera palavras isoladas e pares de palavras.'),
-        ('Vocabulário (c-TF-IDF)', 'min_df', 2, 'Ignora termos que aparecem em menos de 2 tópicos.'),
+        ('Vocabulário (c-TF-IDF)', 'ngram_range', str(NGRAM_RANGE), 'Considera palavras isoladas e pares de palavras.'),
+        ('Vocabulário (c-TF-IDF)', 'tokens', 'palavras com 2+ letras',
+         'Números ficam de fora. Verbos com pronome oblíquo ("criticá-la") e pares da mesma palavra repetida '
+         '("democracia democracia") também.'),
+        ('Vocabulário (c-TF-IDF)', 'min_df', MIN_DF, f'Ignora termos que aparecem em menos de {MIN_DF} tópicos.'),
         ('Vocabulário (c-TF-IDF)', 'stopwords', f'{len(STOPWORDS_DOMAIN)} termos',
          'Stopwords do português (NLTK) e jargão parlamentar.'),
         ('Vocabulário (c-TF-IDF)', 'palavras muito frequentes', f'em ≥{UBIQUITOUS_SHARE:.0%} dos discursos',
@@ -197,20 +230,43 @@ def methodology(cfg: TopicModelConfig, n_docs: int | None = None) -> list[dict]:
         ('Vocabulário (c-TF-IDF)', 'classes gramaticais', 'substantivo, nome próprio, adjetivo, particípio',
          f'Só palavras de conteúdo entram nos rótulos: a classe mais comum de cada palavra no corpus é '
          f'identificada com o spaCy ({SPACY_MODEL}); verbos, advérbios, pronomes e números ficam de fora.'),
-        ('Vocabulário (c-TF-IDF)', 'reduce_frequent_words', True,
+        ('Vocabulário (c-TF-IDF)', 'reduce_frequent_words', 'sim',
          'Diminui o peso de palavras frequentes em todos os tópicos.'),
-        ('Rótulos', 'KeyBERTInspired top_n_words', 10,
-         'Reordena as palavras de cada tópico pela similaridade com o próprio tópico.'),
-        ('Rótulos', 'MaximalMarginalRelevance diversity', 0.3,
-         'Evita palavras redundantes no rótulo (ex.: "mulher" e "mulheres").'),
-        ('Multi-label', 'threshold', cfg.multi_label_threshold,
+        ('Rótulos', 'KeyBERTInspired top_n_words', KEYBERT_TOP_N,
+         'Reordena as palavras de cada tópico pela similaridade com o próprio tópico (no mesmo modelo de '
+         f'embedding, lendo até {LABEL_MAX_SEQ_LENGTH} tokens).'),
+        ('Rótulos', 'MaximalMarginalRelevance diversity', MMR_DIVERSITY,
+         'Reduz palavras redundantes no rótulo; variações da mesma palavra ainda podem aparecer '
+         '("assassinada | assassinadas").'),
+        ('Rótulos', 'palavras no rótulo', LABEL_WORDS, f'O rótulo de cada tópico são as {LABEL_WORDS} primeiras palavras.'),
+        ('Multi-label', 'threshold', _num(cfg.multi_label_threshold),
          'Fração mínima das rodadas do consenso em que o discurso ficou junto dos discursos de outro tópico para '
-         'receber esse tópico além do principal. Abaixo de 0,2 o 2º tópico quase nunca se repetia com outras '
-         'sementes (testes de nov/2026).' if cfg.consensus else
+         'receber esse tópico além do principal (coluna Topicos_multi). Abaixo de 0,2 o 2º tópico quase nunca se '
+         'repetia com outras sementes (testes de nov/2026).' if cfg.consensus else
          'Probabilidade mínima (pertencimento suave do HDBSCAN a cada tópico) para um discurso receber um '
-         'tópico além do principal.'),
+         'tópico além do principal (coluna Topicos_multi).'),
+        ('Menções', 'contagem por tópico', 'texto limpo, sem acento, plural opcional',
+         'Quantas vezes cada discurso cita as keywords da busca (palavra inteira); o dashboard mostra a mediana e '
+         'o % com uma menção só por tópico. Nenhum discurso é excluído por isso.'),
+        ('Classificação', 'espectro político', 'Bolognesi, Ribeiro & Codato (2023)',
+         f'{len(ESPECTRO)} siglas em 7 classes, agrupadas em Esquerda, Centro e Direita. Grafias da mesma sigla são '
+         'unidas; partidos fora da classificação recebem a classe do partido em que se transformaram, e PSDC/DC '
+         '(Centro) e Missão (Direita) uma classificação dos autores. Convidados (quem fala sem ser deputado) ficam '
+         'no corpus, mas fora dos espectros.'),
+        ('Tendências', 'teste', 'Mann-Kendall anual e sazonal',
+         f'Anual: sobre os anos completos (precisa de {MIN_YEARS_ANNUAL}). Sazonal (Hirsch & Slack, 1984): compara '
+         f'cada mês só com o mesmo mês de outros anos (precisa de {MIN_MONTHS_SEASONAL} meses). A série começa no '
+         'mês do primeiro discurso da coleta (janeiro, se ele for de fevereiro: recesso).'),
+        ('Tendências', 'séries', 'contagem, proporção, proporção ÷ bancada',
+         'Proporção: discursos ÷ total de discursos do Plenário no mês (SitaQWeb). Proporção ÷ bancada (só '
+         'espectros): a proporção dividida pela fatia do espectro nas cadeiras na posse de cada legislatura '
+         '(API Dados Abertos).'),
+        ('Estatísticas', 'correlação entre espectros', 'Pearson e cosseno',
+         f'Sobre a contagem anual de cada espectro nos anos completos (precisa de {MIN_YEARS_ANNUAL}).'),
+        ('Estatísticas', 'coeficiente de variação', 'desvio padrão ÷ média',
+         'Da contagem anual de discursos dos 15 partidos com mais discursos: baixo = participação estável.'),
     ]
     return [
-        {'etapa': e, 'parametro': p, 'valor': str(v), 'descricao': d}
+        {'etapa': e, 'parametro': p, 'valor': str(_num(v)), 'descricao': d}
         for e, p, v, d in rows
     ]

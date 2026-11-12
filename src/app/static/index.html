@@ -266,6 +266,9 @@
       }
       td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
       td.num { font-family: "IBM Plex Mono", monospace; white-space: nowrap; }
+      /* documentation table: some values are phrases; let them wrap so the description keeps its room */
+      #doc-body td.num { white-space: normal; width: 13rem; }
+      #doc-body td:last-child { min-width: 18rem; }
       .btn-trash {
         flex: none;
         width: 1.9rem;
@@ -347,7 +350,7 @@
                 ("feminicídio" também busca "feminicidio"), mas o contrário não.
               </span></span>
             </label>
-            <textarea id="keywords" required placeholder="feminicídio&#10;violência doméstica&#10;Lei Maria da Penha"></textarea>
+            <textarea id="keywords" required placeholder="violência doméstica&#10;desmatamento&#10;reforma tributária"></textarea>
             <div id="kw-accents" class="accent-hints" aria-live="polite"></div>
           </div>
           <div class="row">
@@ -491,7 +494,8 @@
         <details id="doc-panel">
           <summary>Documentação dos parâmetros (tabela para o paper)</summary>
           <p class="hint" style="margin-top: 0.5rem">
-            Todos os parâmetros usados, com os valores escolhidos acima. Os que não aparecem no formulário são fixos.
+            Todas as etapas, da coleta às estatísticas, com os valores escolhidos acima. Os parâmetros que não
+            aparecem no formulário são fixos. O dashboard de cada análise traz a mesma tabela, com os valores usados.
           </p>
           <div class="tbl-wrap">
             <table>
