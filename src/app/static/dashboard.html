@@ -479,6 +479,24 @@
         opacity: 1 !important;
       }
 
+      /* characteristic word with z below the significance cut */
+      .wtag.wtag-fraca,
+      .wtag-fraca-ex {
+        opacity: 0.45 !important;
+        background: transparent !important;
+        outline: 1px dashed currentColor;
+        outline-offset: -1px;
+      }
+
+      .wtag.wtag-fraca:hover {
+        opacity: 1 !important;
+      }
+
+      .wtag-fraca-ex {
+        padding: 0 0.3rem;
+        border-radius: 3px;
+      }
+
       /* ── TOPIC BARS ── */
       .topic-list {
         display: flex;
@@ -973,21 +991,29 @@
 
         <!-- VOCABULÁRIO -->
         <div id="section-vocab" class="section">
+          <div class="card" style="margin-bottom: 1rem">
+            <label class="switch" id="vocab-switch">
+              <input type="checkbox" id="vocab-toggle" />
+              <span class="switch-track" aria-hidden="true"></span>
+              Mostrar as palavras mais frequentes
+            </label>
+            <p class="card-desc" id="vocab-desc" style="margin: 0"></p>
+          </div>
           <div class="grid grid-3">
             <div class="card">
               <div class="card-title">
-                🔴 Esquerda — palavras mais frequentes
+                <span>🔴 Esquerda — palavras <span class="vocab-modo"></span></span>
               </div>
               <div id="wc-esq" class="wcloud"></div>
             </div>
             <div class="card">
               <div class="card-title">
-                🔵 Direita — palavras mais frequentes
+                <span>🔵 Direita — palavras <span class="vocab-modo"></span></span>
               </div>
               <div id="wc-dir" class="wcloud"></div>
             </div>
             <div class="card">
-              <div class="card-title">🟡 Centro — palavras mais frequentes</div>
+              <div class="card-title"><span>🟡 Centro — palavras <span class="vocab-modo"></span></span></div>
               <div id="wc-cen" class="wcloud"></div>
             </div>
           </div>
@@ -1645,25 +1671,54 @@
 
       // ── VOCABULÁRIO ──────────────────────────────────────────────────────
       function renderVocab() {
-        const vocab = D.vocabulario || {};
+        // characteristic words (log-odds) by default; the most frequent ones behind the switch
+        const FW = D.vocabulario_caracteristico;
+        const toggle = document.getElementById("vocab-toggle");
+        toggle.disabled = !FW;
+        if (!FW) toggle.checked = true;
+        document.getElementById("vocab-switch").title = FW
+          ? ""
+          : "As palavras características não estão nesta análise (gerada antes desta opção). Rode a análise de novo.";
+        toggle.onchange = renderVocab;
+        const freq = toggle.checked;
+        const br = (v, d = 1) => Number(v).toLocaleString("pt-BR", { maximumFractionDigits: d });
+        document.querySelectorAll(".vocab-modo").forEach((s) => (s.textContent = freq ? "mais frequentes" : "características"));
+        document.getElementById("vocab-desc").innerHTML = freq
+          ? "As palavras que mais aparecem nos discursos de cada espectro. São quase as mesmas nos três: mostram o assunto comum, não o que diferencia cada espectro." +
+            (FW ? "" : " <strong>Esta análise foi gerada antes das palavras características; rode de novo para vê-las.</strong>")
+          : "O que cada espectro diz mais que os outros dois: log-odds com prior informativo (Monroe, Colaresi &amp; Quinn, 2008), " +
+            "contando em quantos discursos cada palavra aparece. Tamanho = escore z (a mesma escala nos três). " +
+            `<span class="wtag-fraca-ex">Apagadas</span>: z &lt; ${br(FW.z_min, 2)}, diferença não significativa (comum em espectros com poucos discursos). ` +
+            "Um orador muito ativo pode puxar uma palavra. Passe o mouse para ver em quantos discursos ela aparece.";
+
+        const allZ = freq ? [] : Object.values(FW.espectros).flat().map((w) => w.z);
+        const maxZ = Math.max(...allZ, 1);
         [
           ["Esquerda", "wc-esq", C.esq],
           ["Direita", "wc-dir", C.dir],
           ["Centro", "wc-cen", C.cen],
         ].forEach(([key, id, color]) => {
-          const words = vocab[key] || [];
+          const words = (freq ? D.vocabulario?.[key] : FW.espectros[key]) || [];
           const container = document.getElementById(id);
+          container.innerHTML = "";
           if (!words.length) {
             container.innerHTML = '<div class="empty">Sem discursos deste espectro.</div>';
             return;
           }
-          const max = Math.max(...words.map((w) => w.count));
+          const max = freq ? Math.max(...words.map((w) => w.count)) : maxZ;
           words.forEach((w) => {
-            const scale = 0.35 + (w.count / max) * 0.65;
+            const scale = 0.35 + ((freq ? w.count : w.z) / max) * 0.65;
             const span = document.createElement("span");
             span.className = "wtag";
             span.textContent = w.word;
-            span.title = `${w.word}: ${w.count.toLocaleString("pt-BR")}`;
+            if (freq) {
+              span.title = `${w.word}: ${w.count.toLocaleString("pt-BR")}`;
+            } else {
+              span.title =
+                `${w.word}: z = ${br(w.z, 2)}${w.z < FW.z_min ? " (não significativo)" : ""}\n` +
+                `em ${br(w.pct)}% dos discursos da ${key} (${br(w.discursos, 0)}) e ${br(w.pct_outros)}% dos outros espectros`;
+              if (w.z < FW.z_min) span.classList.add("wtag-fraca");
+            }
             span.style.fontSize = 0.65 + scale * 0.65 + "rem";
             span.style.opacity = 0.5 + scale * 0.5;
             span.style.background = color + Math.round(scale * 45).toString(16).padStart(2, "0");

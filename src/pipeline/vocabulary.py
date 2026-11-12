@@ -17,11 +17,18 @@ Palavras presentes na maioria dos discursos também saem (ubiquitous_words): apa
 todos os tópicos e não diferenciam nenhum. Em geral são a própria keyword de uma busca com um termo
 só e o vocabulário que a acompanha; numa busca com várias keywords, cada uma aparece em parte dos
 discursos e continua podendo aparecer nos rótulos.
+
+O mesmo vocabulário (excluded_words + ContentVectorizer) é usado nas palavras características de cada
+espectro (statistics.characteristic_words).
 """
 
 import re
 import unicodedata
 from collections import Counter, defaultdict
+
+from sklearn.feature_extraction.text import CountVectorizer
+
+from .config import STOPWORDS_DOMAIN
 
 SPACY_MODEL = 'pt_core_news_sm'
 CONTENT_POS = {'NOUN', 'PROPN', 'ADJ', 'PART'}  # PART = particípio (VERB/AUX com VerbForm=Part)
@@ -32,6 +39,38 @@ TOKEN_PATTERN = r'(?u)\b[^\W\d_]{2,}\b'  # só palavras com letras (sem números
 # "feminicídio" e os rótulos se enchiam de "violência mulher" (72% e 84% dos discursos); entre 90% e 50%
 # só saem essas; "crime" e "vida" (40%) ficam.
 UBIQUITOUS_SHARE = 0.5
+
+# Verbo com pronome oblíquo ("criticá-la", "tornou-se", "fazê-lo-ia"): o separador de palavras corta
+# no hífen e sobraria o verbo truncado ("criticá"); a forma inteira sai do vocabulário (é verbo).
+_ENCLITIC = re.compile(
+    r'\b[^\W\d_]+-(?:se|lhes?|l?[oa]s?|n[oa]s?|me|te|nos|vos)(?:-[^\W\d_]+)?\b', re.IGNORECASE,
+)
+
+
+class ContentVectorizer(CountVectorizer):
+    """CountVectorizer que descarta verbos com pronome oblíquo ("criticá-la") e bigramas de palavra
+    repetida ("democracia democracia").
+
+    Os bigramas repetidos surgem quando as stopwords entre duas ocorrências da mesma palavra são removidas.
+    """
+
+    def build_preprocessor(self):
+        preprocess = super().build_preprocessor()
+        return lambda doc: _ENCLITIC.sub(' ', preprocess(doc))
+
+    def build_analyzer(self):
+        analyze = super().build_analyzer()
+
+        def analyzer(doc):
+            out = []
+            for term in analyze(doc):
+                parts = term.split(' ')
+                if len(parts) == 2 and parts[0] == parts[1]:
+                    continue
+                out.append(term)
+            return out
+
+        return analyzer
 
 
 def fold(text: str) -> str:
@@ -105,3 +144,8 @@ def non_content_words(documents: list[str]) -> set[str]:
         word for word, counts in pos.items()
         if sum(counts[p] for p in CONTENT_POS) / sum(counts.values()) < MIN_CONTENT_SHARE
     }
+
+
+def excluded_words(documents: list[str]) -> set[str]:
+    """Tudo o que fica fora do vocabulário: stopwords, palavras ubíquas e palavras que não são de conteúdo."""
+    return STOPWORDS_DOMAIN | ubiquitous_words(documents, STOPWORDS_DOMAIN) | non_content_words(documents)

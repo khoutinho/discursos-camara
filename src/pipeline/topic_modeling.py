@@ -16,7 +16,6 @@ Fluxo:
    sem consenso, o pertencimento suave do HDBSCAN
 """
 
-import re
 import time
 import warnings
 
@@ -29,25 +28,16 @@ from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
 from bertopic.vectorizers import ClassTfidfTransformer
 from hdbscan import HDBSCAN
 from sentence_transformers import SentenceTransformer
-from sklearn.feature_extraction.text import CountVectorizer
 from umap import UMAP
 
-from .config import STOPWORDS_DOMAIN
 from .consensus import coassociation, consensus_labels, membership
 from .model_config import (
     CONSENSUS_SEED, EMBEDDING_MODELS, KEYBERT_TOP_N, LABEL_MAX_SEQ_LENGTH, LABEL_WORDS, MIN_DF, MMR_DIVERSITY,
     NGRAM_RANGE, TopicModelConfig, embedding_cache_key, methodology,
 )
-from .vocabulary import TOKEN_PATTERN, non_content_words, ubiquitous_words
+from .vocabulary import TOKEN_PATTERN, ContentVectorizer, excluded_words
 
 warnings.filterwarnings('ignore')
-
-
-# Verbo com pronome oblíquo ("criticá-la", "tornou-se", "fazê-lo-ia"): o separador de palavras corta
-# no hífen e sobraria o verbo truncado ("criticá"); a forma inteira sai do vocabulário (é verbo).
-_ENCLITIC = re.compile(
-    r'\b[^\W\d_]+-(?:se|lhes?|l?[oa]s?|n[oa]s?|me|te|nos|vos)(?:-[^\W\d_]+)?\b', re.IGNORECASE,
-)
 
 
 def split_words(text: str, n_words: int | None) -> list[str]:
@@ -104,32 +94,6 @@ def device_info() -> dict:
     if torch.cuda.is_available():
         return {'device': 'cuda', 'gpu': torch.cuda.get_device_name(0)}
     return {'device': 'cpu', 'gpu': None}
-
-
-class _ContentVectorizer(CountVectorizer):
-    """CountVectorizer que descarta verbos com pronome oblíquo ("criticá-la") e bigramas de palavra
-    repetida ("democracia democracia").
-
-    Os bigramas repetidos surgem quando as stopwords entre duas ocorrências da mesma palavra são removidas.
-    """
-
-    def build_preprocessor(self):
-        preprocess = super().build_preprocessor()
-        return lambda doc: _ENCLITIC.sub(' ', preprocess(doc))
-
-    def build_analyzer(self):
-        analyze = super().build_analyzer()
-
-        def analyzer(doc):
-            out = []
-            for term in analyze(doc):
-                parts = term.split(' ')
-                if len(parts) == 2 and parts[0] == parts[1]:
-                    continue
-                out.append(term)
-            return out
-
-        return analyzer
 
 
 class TopicModeler:
@@ -216,10 +180,9 @@ class TopicModeler:
             )
         _cb('clustering', 0.0)
 
-        vectorizer = _ContentVectorizer(
-            stop_words=sorted(
-                STOPWORDS_DOMAIN | ubiquitous_words(docs_list, STOPWORDS_DOMAIN) | non_content_words(docs_list)
-            ),
+        excluded = excluded_words(docs_list)
+        vectorizer = ContentVectorizer(
+            stop_words=sorted(excluded),
             token_pattern=TOKEN_PATTERN,
             min_df=MIN_DF,
             ngram_range=NGRAM_RANGE,
@@ -296,6 +259,7 @@ class TopicModeler:
             'certainty': certainty,
             'topic_labels': topic_labels,
             'multi_labels': multi_labels,
+            'excluded_words': excluded,   # fora do vocabulário (reusado nas palavras características)
             'model': self.model,
         }
 

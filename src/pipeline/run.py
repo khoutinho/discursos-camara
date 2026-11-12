@@ -84,7 +84,7 @@ def analyze(
     _cb('statistics', 0.0)
     stats = compute_all_statistics(
         df, topics=topics, topic_labels=topic_labels, period=period, plenary_totals=plenary_totals,
-        bancadas=bancadas, keywords=keywords,
+        bancadas=bancadas, keywords=keywords, vocab_excluded=results['excluded_words'],
     )
 
     n = len(df)

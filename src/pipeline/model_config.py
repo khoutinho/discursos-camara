@@ -70,6 +70,11 @@ MMR_DIVERSITY = 0.3
 LABEL_WORDS = 5            # palavras no rótulo de cada tópico
 LABEL_MAX_SEQ_LENGTH = 512  # contexto do modelo usado só para escolher os rótulos (KeyBERTInspired)
 
+# palavras características por espectro (statistics.characteristic_words)
+FW_TOP_N = 25              # palavras mostradas por espectro
+FW_MIN_DOCS = 5            # termo precisa aparecer em ≥5 discursos
+FW_Z_MIN = 1.96            # z abaixo disso: diferença não significativa (aparece apagada no dashboard)
+
 
 def embedding_cache_key(model_key: str) -> str:
     """Chave do cache de embeddings: muda quando o modelo, os trechos ou a limpeza do texto mudam."""
@@ -245,6 +250,18 @@ def methodology(cfg: TopicModelConfig, n_docs: int | None = None) -> list[dict]:
          'repetia com outras sementes (testes de nov/2026).' if cfg.consensus else
          'Probabilidade mínima (pertencimento suave do HDBSCAN a cada tópico) para um discurso receber um '
          'tópico além do principal (coluna Topicos_multi).'),
+        ('Vocabulário por espectro', 'palavras características',
+         'log-odds com prior de Dirichlet informativo (Monroe, Colaresi & Quinn, 2008)',
+         'Para cada espectro, o z-score do log-odds de cada palavra ou par de palavras contra os outros dois '
+         'espectros. Conta em quantos discursos o termo aparece (cada discurso conta uma vez), para um discurso '
+         'que repete a palavra não pesar sozinho; o prior é a frequência do termo no corpus inteiro. Mesmo '
+         'vocabulário dos rótulos (sem stopwords, palavras ubíquas e palavras que não são de conteúdo), sem '
+         f'siglas de partido; só termos em {FW_MIN_DOCS}+ discursos. As {FW_TOP_N} de maior z por espectro; '
+         f'z < {_num(FW_Z_MIN)} (diferença não significativa a 5%) aparece apagado. Um orador muito ativo ainda '
+         'pode puxar uma palavra.'),
+        ('Vocabulário por espectro', 'mais frequentes', f'{FW_TOP_N} por espectro',
+         'Alternativa no dashboard: as palavras de 4+ letras que mais aparecem nos discursos do espectro, sem '
+         'stopwords e palavras ubíquas. São quase iguais entre os espectros.'),
         ('Menções', 'contagem por tópico', 'texto limpo, sem acento, plural opcional',
          'Quantas vezes cada discurso cita as keywords da busca (palavra inteira); o dashboard mostra a mediana e '
          'o % com uma menção só por tópico. Nenhum discurso é excluído por isso.'),

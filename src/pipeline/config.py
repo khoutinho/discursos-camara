@@ -201,6 +201,8 @@ _STOPWORDS_PARLAMENTAR = {
     'cumprimento', 'cumprimentos', 'discussão', 'discussao', 'debate', 'preocupação', 'preocupacao',
     # "a favor", "em favor", "por favor" (votações); "convido" e "pronunciamento" são da condução da sessão
     'favor', 'convido', 'convida', 'pronunciamento', 'pronunciamentos',
+    # abreviações: "V. Exa.", "Lei nº", "art. 121" (apareciam em rótulos: "feminina exa", "legislativa nº")
+    'exa', 'exas', 'nº', 'art',
     # particípios genéricos (os particípios temáticos, como "assassinada", ficam)
     'feito', 'feita', 'feitos', 'feitas', 'sido', 'dito', 'dita', 'tido', 'dado', 'dada',
     'visto', 'vista', 'chamado', 'chamada', 'colocado', 'colocada', 'lido', 'considerado', 'considerada',

@@ -11,9 +11,10 @@ import pandas as pd
 from scipy.spatial.distance import cosine
 from scipy.stats import pearsonr
 
-from .config import CONVIDADO, STOPWORDS_DOMAIN
+from .config import CONVIDADO, ESPECTRO, PARTIDO_GRAFIAS, STOPWORDS_DOMAIN
+from .model_config import FW_MIN_DOCS, FW_TOP_N, FW_Z_MIN, NGRAM_RANGE
 from .trends import MIN_YEARS_ANNUAL, complete_years, compute_trends, series_start
-from .vocabulary import fold, ubiquitous_words
+from .vocabulary import TOKEN_PATTERN, ContentVectorizer, excluded_words, fold, ubiquitous_words
 
 
 def compute_all_statistics(
@@ -24,6 +25,7 @@ def compute_all_statistics(
     plenary_totals: dict[str, int | None] | None = None,
     bancadas: list[dict] | None = None,
     keywords: list[str] | None = None,
+    vocab_excluded: set[str] | None = None,
 ) -> dict:
     """
     Calcula todas as análises estatísticas.
@@ -36,6 +38,8 @@ def compute_all_statistics(
         plenary_totals: {'YYYY-MM': total do Plenário} para as tendências em proporção.
         bancadas: bancada na posse de cada legislatura, para a "proporção ÷ bancada" dos espectros.
         keywords: keywords da busca (tabela keyword × tópico, com 2+ keywords).
+        vocab_excluded: palavras fora do vocabulário dos rótulos (TopicModeler.fit); None = calcula
+            (roda o spaCy em todos os discursos).
 
     Returns:
         dict com todas as análises prontas pra exportação.
@@ -148,13 +152,17 @@ def compute_all_statistics(
         .to_dict('records')
     )
 
-    # ── Vocabulário por espectro ──
+    # ── Vocabulário por espectro: mais frequentes e características ──
     stats['vocabulario'] = {}
     col = 'Texto_modelo' if 'Texto_modelo' in df.columns else 'Discurso'  # texto limpo, se houver
-    excluded = STOPWORDS_DOMAIN | ubiquitous_words(df[col].dropna().tolist(), STOPWORDS_DOMAIN)
+    docs = df[col].fillna('').tolist()
+    excluded = STOPWORDS_DOMAIN | ubiquitous_words(docs, STOPWORDS_DOMAIN)
     for esp in espectros:
         textos = df[df['Espectro'] == esp][col].dropna()
         stats['vocabulario'][esp] = _top_words(textos, excluded)
+    if vocab_excluded is None:
+        vocab_excluded = excluded_words(docs)
+    stats['vocabulario_caracteristico'] = characteristic_words(df, col, vocab_excluded, espectros)
 
     # ── Análises por tópico (se disponível) ──
     if topics is not None and topic_labels is not None:
@@ -210,6 +218,78 @@ def _title_name(nome: str) -> str:
     """'MARIA DO ROSÁRIO' → 'Maria do Rosário' (para nomes que só aparecem em maiúsculas)."""
     words = nome.lower().split()
     return ' '.join(w if i and w in _NAME_PARTICLES else w[:1].upper() + w[1:] for i, w in enumerate(words))
+
+
+# Siglas que, nos discursos, são sobretudo palavras comuns ("cidadania", "rede de proteção", "União"):
+# ficam no vocabulário. Na coleta "feminicídio", "cidadania" aparece 85 vezes em minúsculas e 90 com
+# inicial maiúscula; "Republicanos", 4 e 24 (este sai).
+_SIGLAS_PALAVRAS = {
+    'agir', 'cidadania', 'missão', 'missao', 'mobiliza', 'novo', 'rede', 'solidariedade', 'união', 'uniao',
+    'podemos', 'pode',
+}
+
+
+def _party_words() -> set[str]:
+    """Siglas de partido em minúsculas ("psol", "republicanos"), menos as que são palavras comuns."""
+    siglas = {s.lower() for s in [*ESPECTRO, *PARTIDO_GRAFIAS, *PARTIDO_GRAFIAS.values()]}
+    return {s for s in siglas if re.fullmatch(TOKEN_PATTERN, s)} - _SIGLAS_PALAVRAS
+
+
+def characteristic_words(df: pd.DataFrame, col: str, excluded: set[str], groups: list[str],
+                         n: int = FW_TOP_N) -> dict | None:
+    """
+    Palavras características de cada espectro: log-odds com prior de Dirichlet informativo
+    (Monroe, Colaresi & Quinn, 2008, "Fightin' Words"), cada espectro contra os outros dois.
+
+    Para cada termo w (palavra ou par de palavras), y_i = discursos do espectro i com w, y_j = discursos dos
+    outros dois espectros com w, n = soma de y sobre todos os termos. O prior α_w é a contagem de w no corpus
+    inteiro (α_0 = soma dos α_w), que puxa os termos raros para a média:
+
+        δ_w = log((y_i + α_w) / (n_i + α_0 − y_i − α_w)) − log((y_j + α_w) / (n_j + α_0 − y_j − α_w))
+        z_w = δ_w / √(1/(y_i + α_w) + 1/(y_j + α_w))
+
+    Conta discursos, não ocorrências: um discurso que repete a palavra 17 vezes ("baixada fluminense")
+    não a torna característica sozinho. Mesmo vocabulário dos rótulos (sem stopwords, palavras ubíquas
+    e palavras que não são de conteúdo), sem siglas de partido (o orador cita o próprio partido).
+    """
+    d = df[df['Espectro'].isin(groups)]
+    if d.empty:
+        return None
+    vec = ContentVectorizer(
+        stop_words=sorted(excluded | _party_words()), token_pattern=TOKEN_PATTERN,
+        ngram_range=NGRAM_RANGE, min_df=FW_MIN_DOCS, binary=True,
+    )
+    try:
+        X = vec.fit_transform(d[col].fillna('')).tocsc()
+    except ValueError:  # nenhum termo em FW_MIN_DOCS discursos
+        return None
+    terms = vec.get_feature_names_out()
+    esp = d['Espectro'].to_numpy()
+    alpha = np.asarray(X.sum(axis=0)).ravel().astype(float)
+    a0 = alpha.sum()
+
+    result = {'z_min': FW_Z_MIN, 'espectros': {}}
+    for g in groups:
+        mine = esp == g
+        n_docs, n_rest = int(mine.sum()), int((~mine).sum())
+        if not n_docs or not n_rest:
+            result['espectros'][g] = []
+            continue
+        yi = np.asarray(X[mine].sum(axis=0)).ravel()
+        yj = np.asarray(X[~mine].sum(axis=0)).ravel()
+        ni, nj = yi.sum(), yj.sum()
+        delta = (np.log((yi + alpha) / (ni + a0 - yi - alpha))
+                 - np.log((yj + alpha) / (nj + a0 - yj - alpha)))
+        z = delta / np.sqrt(1 / (yi + alpha) + 1 / (yj + alpha))
+        top = [k for k in np.argsort(-z)[:n] if z[k] > 0]
+        result['espectros'][g] = [{
+            'word': terms[k],
+            'z': round(float(z[k]), 2),
+            'discursos': int(yi[k]),
+            'pct': round(yi[k] / n_docs * 100, 1),          # % dos discursos do espectro
+            'pct_outros': round(yj[k] / n_rest * 100, 1),   # % dos discursos dos outros dois
+        } for k in top]
+    return result
 
 
 def _top_words(texts: pd.Series, excluded: set[str], n: int = 25) -> list[dict]:
