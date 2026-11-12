@@ -162,6 +162,8 @@
       }
       .btn.secondary:hover { border-color: var(--accent); }
       .btn.small { padding: 0.3rem 0.6rem; font-size: 0.75rem; font-weight: 500; }
+      .card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; margin-bottom: 1rem; }
+      .card-head .card-title { margin-bottom: 0; }
       .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
 
       /* help tooltip */
@@ -418,7 +420,13 @@
 
       <!-- CONFIGURAÇÃO DA ANÁLISE -->
       <section id="panel-config" class="card" hidden>
-        <div class="card-title">Análise de tópicos</div>
+        <div class="card-head">
+          <div class="card-title">Análise de tópicos</div>
+          <button type="button" class="btn secondary small" id="run-defaults"
+                  title="Volta número de tópicos, modelo, consenso e threshold aos valores padrão">
+            Restaurar padrão
+          </button>
+        </div>
         <p class="hint" style="margin: -0.4rem 0 1rem">Dataset: <strong id="cfg-dataset"></strong></p>
         <form id="form-run">
           <div class="row">
@@ -851,12 +859,29 @@
         select.replaceChildren(
           ...options.embedding_models.map((m) => el("option", { value: m.id }, m.label)),
         );
-        select.value = options.defaults.embedding_model;
-        $("no-reduce").checked = options.defaults.nr_topics == null;
-        $("nr-topics").value = options.defaults.nr_topics ?? 20;
-        $("threshold").value = options.defaults.threshold;
-        $("consenso").checked = options.defaults.consenso;
+        applyDefaults();
+      }
+
+      function applyDefaults() {
+        const d = options.defaults;
+        $("embedding-model").value = d.embedding_model;
+        $("no-reduce").checked = d.nr_topics == null;
+        $("nr-topics").value = d.nr_topics ?? 20;
+        $("threshold").value = d.threshold;
+        $("consenso").checked = d.consenso;
         syncForm();
+      }
+      $("run-defaults").addEventListener("click", applyDefaults);
+
+      // disabled while the form already shows the defaults
+      function syncDefaultsButton() {
+        const d = options?.defaults;
+        if (!d) return;
+        const p = formParams();
+        const same = p.embedding_model === d.embedding_model && p.nr_topics === d.nr_topics &&
+          Math.abs(p.threshold - d.threshold) < 1e-9 && p.consenso === d.consenso &&
+          (d.nr_topics != null || Number($("nr-topics").value) === 20);
+        $("run-defaults").disabled = same;
       }
 
       function formParams() {
@@ -870,6 +895,7 @@
 
       function syncForm() {
         $("nr-topics").disabled = $("no-reduce").checked;
+        syncDefaultsButton();
         $("threshold-val").textContent = Number($("threshold").value).toFixed(2);
         const model = options?.embedding_models.find((m) => m.id === $("embedding-model").value);
         $("model-desc").textContent = model?.descricao || "";
