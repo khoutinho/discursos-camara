@@ -273,7 +273,8 @@ def methodology(cfg: TopicModelConfig, n_docs: int | None = None) -> list[dict]:
          'Alternativa no dashboard: as palavras de 4+ letras que mais aparecem nos discursos do espectro, sem '
          'stopwords e palavras ubíquas. São quase iguais entre os espectros.'),
         ('Menções', 'contagem por tópico', 'texto limpo, sem acento, plural opcional',
-         'Quantas vezes cada discurso cita as keywords da busca (palavra inteira); o dashboard mostra a mediana e '
+         'Quantas vezes cada discurso cita as keywords da busca (palavra inteira; cada ocorrência conta uma vez, '
+         'mesmo que case com mais de uma keyword); o dashboard mostra a mediana e '
          'o % com uma menção só por tópico. Nenhum discurso é excluído por isso.'),
         ('Classificação', 'espectro político', 'Bolognesi, Ribeiro & Codato (2023)',
          f'{len(ESPECTRO)} siglas em 7 classes, agrupadas em Esquerda, Centro e Direita. Grafias da mesma sigla são '

@@ -342,11 +342,23 @@ def _top_words(texts: pd.Series, excluded: set[str], n: int = 25) -> list[dict]:
     return [{'word': w, 'count': c} for w, c in counter.most_common(n)]
 
 
+def _keyword_body(keyword: str) -> str:
+    return r'\s+'.join(re.escape(w) + r'(?:e?s)?' for w in fold(keyword).split())
+
+
 def keyword_pattern(keyword: str) -> re.Pattern:
     """Regex de uma keyword no texto já passado por fold(): sem acento, plural opcional, espaços flexíveis."""
-    words = fold(keyword).split()
-    body = r'\s+'.join(re.escape(w) + r'(?:e?s)?' for w in words)
-    return re.compile(rf'(?<!\w){body}(?!\w)')
+    return re.compile(rf'(?<!\w){_keyword_body(keyword)}(?!\w)')
+
+
+def any_keyword_pattern(keywords: list[str]) -> re.Pattern:
+    """
+    Regex de qualquer uma das keywords, para contar cada ocorrência uma vez só: "pais" e "país"
+    casam com as mesmas palavras (a contagem não diferencia acento), e "violência doméstica" contém
+    "violência". As mais longas vêm primeiro, para a ocorrência contar como a keyword inteira.
+    """
+    bodies = sorted({_keyword_body(k) for k in keywords}, key=len, reverse=True)
+    return re.compile(rf'(?<!\w)(?:{"|".join(bodies)})(?!\w)')
 
 
 def keywords_by_topic(df: pd.DataFrame, keywords: list[str], topic_labels: dict[int, str]) -> dict | None:
@@ -376,16 +388,17 @@ def mentions_by_topic(df: pd.DataFrame, keywords: list[str], topic_labels: dict[
 
     Discursos que citam o termo uma vez só costumam ser sobre outro assunto (homenagens,
     posses, eleições) e formam tópicos próprios; a contagem mostra quais são. Conta no texto
-    limpo (sem cabeçalho nem falas de outros oradores), sem diferenciar acento e plural, e soma
-    todas as keywords. Nenhum discurso é filtrado: um discurso sobre o tema pode citar o termo
-    uma vez e usar outras palavras ("violência contra a mulher", "Maria da Penha").
+    limpo (sem cabeçalho nem falas de outros oradores), sem diferenciar acento e plural, juntando
+    todas as keywords: cada ocorrência conta uma vez, mesmo que case com mais de uma keyword.
+    Nenhum discurso é filtrado: um discurso sobre o tema pode citar o termo uma vez e usar outras
+    palavras ("violência contra a mulher", "Maria da Penha").
     """
     keywords = [k for k in dict.fromkeys(k.strip() for k in keywords or []) if k]
     col = 'Texto_modelo' if 'Texto_modelo' in df.columns else 'Discurso'
     if not keywords or col not in df.columns:
         return None
     texts = df[col].fillna('').map(fold)
-    counts = sum(texts.str.count(keyword_pattern(k)) for k in keywords)
+    counts = texts.str.count(any_keyword_pattern(keywords))
 
     def summary(c: pd.Series) -> dict:
         return {'n': int(len(c)), 'mediana': float(c.median()), 'pct_uma': round(float((c == 1).mean() * 100), 1)}
