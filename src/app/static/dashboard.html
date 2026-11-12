@@ -1410,7 +1410,8 @@
       function renderTopicos() {
         const freq = D.topicos_freq || [];
         document.getElementById("topicos-ruido").textContent = D.modelo.n_reatribuidos
-          ? `${D.modelo.pct_reatribuidos}% dos discursos não se encaixaram em nenhum tópico no agrupamento ` +
+          ? `${D.modelo.pct_reatribuidos}% dos discursos não se encaixaram em nenhum tópico ` +
+            (D.modelo.consenso_rodadas ? "de forma estável " : "no agrupamento ") +
             `e foram atribuídos ao tópico mais próximo`
           : `o ruído fica de fora: ${D.modelo.pct_ruido}% dos discursos não se encaixaram em nenhum tópico`;
 
@@ -1653,12 +1654,22 @@
           `<tr><td colspan="4" class="empty">Disponível para coletas com ${D.tendencias.cobertura.min_anos_anual} anos completos ou mais.</td></tr>`;
 
         const m = D.modelo;
+        const consenso = m.consenso_rodadas
+          ? `Tópicos de consenso de ${m.consenso_rodadas} rodadas (os grupos de discursos que ficam juntos em mais ` +
+            `da metade delas); `
+          : "";
         document.getElementById("modelo-resumo").textContent =
+          consenso +
           `${m.n_topicos} tópicos encontrados em ${m.n_discursos.toLocaleString("pt-BR")} discursos; ` +
           (m.n_reatribuidos
-            ? `${m.n_reatribuidos.toLocaleString("pt-BR")} (${m.pct_reatribuidos}%) ficaram como ruído no ` +
-              `agrupamento e foram atribuídos ao tópico mais próximo. `
+            ? `${m.n_reatribuidos.toLocaleString("pt-BR")} (${m.pct_reatribuidos}%) ` +
+              (m.consenso_rodadas ? "não ficaram de forma estável em nenhum tópico" : "ficaram como ruído no agrupamento") +
+              ` e foram atribuídos ao tópico mais próximo. `
             : `${m.n_ruido.toLocaleString("pt-BR")} (${m.pct_ruido}%) ficaram como ruído. `) +
+          (m.n_incertos != null
+            ? `${m.n_incertos.toLocaleString("pt-BR")} (${m.pct_incertos}%) ficam com o próprio tópico em menos de ` +
+              `${Math.round(m.certeza_limite * 100)}% das rodadas (coluna Topico_certeza do CSV). `
+            : "") +
           (m.n_multi_label != null
             ? `${m.n_multi_label.toLocaleString("pt-BR")} (${m.pct_multi_label}%) receberam mais de um tópico (multi-label).`
             : "");

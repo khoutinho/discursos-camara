@@ -234,6 +234,7 @@ class RunRequest(BaseModel):
     embedding_model: str = DEFAULT_EMBEDDING_MODEL
     nr_topics: int | None = Field(default=None, ge=2, le=200)  # None = sem redução (todos os tópicos do HDBSCAN)
     threshold: float = Field(default=TopicModelConfig.multi_label_threshold, ge=0.0, le=1.0)
+    consenso: bool = True  # tópicos de consenso (várias sementes); False = uma rodada só
 
     @field_validator("embedding_model")
     @classmethod
@@ -272,6 +273,7 @@ def methodology_table(
     nr_topics: int = 20,
     sem_reducao: bool = False,
     threshold: float = TopicModelConfig.multi_label_threshold,
+    consenso: bool = True,
 ):
     """Tabela de parâmetros para os valores escolhidos (painel de documentação)."""
     if embedding_model not in EMBEDDING_MODELS:
@@ -280,19 +282,20 @@ def methodology_table(
         embedding_model=embedding_model,
         nr_topics=None if sem_reducao else nr_topics,
         multi_label_threshold=threshold,
+        consensus_runs=TopicModelConfig.consensus_runs if consenso else 1,
     )
     return methodology(cfg)
 
 
 @app.get("/api/estimate")
-def estimate(dataset_id: int, embedding_model: str = DEFAULT_EMBEDDING_MODEL):
+def estimate(dataset_id: int, embedding_model: str = DEFAULT_EMBEDDING_MODEL, consenso: bool = True):
     """Tempo estimado da análise nesta máquina (GPU ou CPU), descontando embeddings já guardados."""
     if embedding_model not in EMBEDDING_MODELS:
         raise HTTPException(400, f"modelo desconhecido; opções: {', '.join(EMBEDDING_MODELS)}")
     conn = db.connect()
     try:
         _require(conn, dataset_id)
-        return jobs.estimate(conn, dataset_id, embedding_model)
+        return jobs.estimate(conn, dataset_id, embedding_model, consenso)
     finally:
         conn.close()
 

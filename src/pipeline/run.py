@@ -9,7 +9,8 @@ Opções:
     --input         Caminho do CSV de entrada
     --output        Diretório de saída (default: output/)
     --nr-topics     Número alvo de tópicos pro reduce_topics (default: automático)
-    --threshold     Threshold de probabilidade pra multi-label (default: 0.1)
+    --threshold     Threshold do multi-label (default: 0.2)
+    --consensus-runs  Rodadas do consenso (default: 15; 1 = uma rodada só, sem consenso)
     --cache-dir     Diretório pra cache de embeddings (default: .cache/)
     --encoding      Encoding do CSV (default: utf-8-sig)
     --keywords      Keywords da busca, separadas por vírgula (tabela keyword × tópico)
@@ -33,6 +34,9 @@ from .text_cleaning import MODEL_TEXT_COLUMN, add_model_text
 from .topic_modeling import TopicModeler, TopicModelConfig
 from .statistics import compute_all_statistics
 from .export import export_dashboard_json, export_processed_csv
+
+# discurso que fica com o próprio tópico em menos da metade das rodadas do consenso
+UNCERTAIN_BELOW = 0.5
 
 
 def analyze(
@@ -73,6 +77,8 @@ def analyze(
     df['Topico'] = topics
     df['Topico_label'] = df['Topico'].map(topic_labels)
     df['Topico_reatribuido'] = results['reassigned']
+    if results['certainty'] is not None:
+        df['Topico_certeza'] = np.round(results['certainty'], 3)
     df['Topicos_multi'] = ['; '.join(labels) for labels in results['multi_labels']]
 
     _cb('statistics', 0.0)
@@ -86,6 +92,8 @@ def analyze(
     n_noise = int((topics == -1).sum())             # ruído que sobrou (0 com reduce_outliers)
     n_reassigned = int(results['reassigned'].sum())
     n_multi = sum(len(m) > 1 for m in results['multi_labels'])
+    cert = results['certainty']
+    n_uncertain = int((cert < UNCERTAIN_BELOW).sum()) if cert is not None else None
     stats['modelo'] = {
         'n_discursos': n,
         'n_topicos': len([t for t in topic_labels if t != -1]),
@@ -97,6 +105,10 @@ def analyze(
         'pct_reatribuidos': pct(n_reassigned),
         'n_multi_label': n_multi,
         'pct_multi_label': pct(n_multi),
+        'consenso_rodadas': config.consensus_runs if config.consensus else None,
+        'n_incertos': n_uncertain,          # certeza < UNCERTAIN_BELOW (só com consenso)
+        'pct_incertos': pct(n_uncertain) if n_uncertain is not None else None,
+        'certeza_limite': UNCERTAIN_BELOW if cert is not None else None,
     }
     stats['metodologia'] = modeler.methodology()
     return df, stats
@@ -106,11 +118,12 @@ def run_pipeline(
     input_csv: str,
     output_dir: str = 'output',
     nr_topics: int | None = None,
-    threshold: float = 0.1,
+    threshold: float = TopicModelConfig.multi_label_threshold,
     cache_dir: str = '.cache',
     encoding: str = 'utf-8-sig',
     embedding_model: str = DEFAULT_EMBEDDING_MODEL,
     keywords: list[str] | None = None,
+    consensus_runs: int = TopicModelConfig.consensus_runs,
 ):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -123,15 +136,19 @@ def run_pipeline(
         embedding_model=embedding_model,
         nr_topics=nr_topics,
         multi_label_threshold=threshold,
+        consensus_runs=consensus_runs,
         cache_dir=Path(cache_dir) if cache_dir else None,
     )
     df, stats = analyze(df, config, progress_callback=lambda stage, _pct: print(f"→ {stage}"), keywords=keywords)
 
     m = stats['modelo']
     print(f"\nTópicos encontrados: {m['n_topicos']}")
-    print(f"Ruído do HDBSCAN: {m['n_ruido_original']} ({m['pct_ruido_original']}%), "
+    print(f"{'Sem consenso' if m['consenso_rodadas'] else 'Ruído do HDBSCAN'}: {m['n_ruido_original']} ({m['pct_ruido_original']}%), "
           f"reatribuídos ao tópico mais próximo: {m['n_reatribuidos']}")
     print(f"Discursos com mais de um tópico (multi-label): {m['n_multi_label']} ({m['pct_multi_label']}%)")
+    if m['consenso_rodadas']:
+        print(f"Consenso de {m['consenso_rodadas']} rodadas; discursos que ficam com o próprio tópico em menos de "
+              f"{m['certeza_limite']:.0%} das rodadas: {m['n_incertos']} ({m['pct_incertos']}%)")
     print("\nTop tópicos:")
     for label, count in df[df['Topico'] != -1]['Topico_label'].value_counts().head(10).items():
         print(f"  {label}: {count} discursos")
@@ -156,7 +173,10 @@ def main():
     parser.add_argument('--input', required=True, help='CSV de entrada')
     parser.add_argument('--output', default='output', help='Diretório de saída')
     parser.add_argument('--nr-topics', type=int, default=None, help='Número alvo de tópicos')
-    parser.add_argument('--threshold', type=float, default=0.1, help='Threshold multi-label')
+    parser.add_argument('--threshold', type=float, default=TopicModelConfig.multi_label_threshold,
+                        help='Threshold do multi-label')
+    parser.add_argument('--consensus-runs', type=int, default=TopicModelConfig.consensus_runs,
+                        help='Rodadas do consenso (1 = uma rodada só, sem consenso)')
     parser.add_argument('--cache-dir', default='.cache', help='Cache de embeddings')
     parser.add_argument('--encoding', default='utf-8-sig', help='Encoding do CSV')
     parser.add_argument('--embedding-model', default=DEFAULT_EMBEDDING_MODEL, choices=list(EMBEDDING_MODELS),
@@ -174,6 +194,7 @@ def main():
         encoding=args.encoding,
         embedding_model=args.embedding_model,
         keywords=args.keywords.split(',') if args.keywords else None,
+        consensus_runs=args.consensus_runs,
     )
 
 

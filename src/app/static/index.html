@@ -450,12 +450,25 @@
             </div>
           </div>
           <div class="field">
+            <label class="inline">
+              <input type="checkbox" id="consenso" /> Tópicos de consenso (15 rodadas)
+              <span class="help" tabindex="0">?<span class="tip" role="tooltip">
+                O agrupamento em tópicos depende de um sorteio inicial: com outra semente, parte dos discursos muda
+                de tópico. Com o consenso, o agrupamento roda 15 vezes com sementes diferentes e os tópicos são os
+                grupos de discursos que ficam juntos em mais da metade das rodadas. Os tópicos ficam bem mais
+                estáveis, e cada discurso ganha uma certeza (coluna Topico_certeza do CSV). Custa ~1 min a mais
+                a cada 1.500 discursos. Recomendado.
+              </span></span>
+            </label>
+          </div>
+          <div class="field">
             <label for="threshold">
               Threshold do multi-label: <span id="threshold-val" class="num"></span>
               <span class="help" tabindex="0">?<span class="tip" role="tooltip">
-                Cada discurso tem um tópico principal. Com o multi-label, ele também recebe os outros tópicos cuja
-                probabilidade passe deste valor. Mais baixo = mais tópicos por discurso. Afeta a coluna
-                Topicos_multi do CSV processado.
+                Cada discurso tem um tópico principal. Com o multi-label, ele também recebe os outros tópicos com que
+                ficou junto em pelo menos esta fração das rodadas do consenso (sem consenso: a probabilidade do
+                HDBSCAN). Com consenso, abaixo de 0,2 o segundo tópico quase sempre é acaso; sem consenso, use
+                ~0,1. Mais baixo = mais tópicos por discurso. Afeta a coluna Topicos_multi do CSV processado.
               </span></span>
             </label>
             <input type="range" id="threshold" min="0" max="0.5" step="0.05" />
@@ -528,7 +541,8 @@
         ["totals", "Total de discursos do Plenário por mês (para a proporção)"],
         ["bancadas", "Bancadas na posse de cada legislatura (Dados Abertos; ~1 min por legislatura na 1ª vez)"],
         ["embeddings", "Embeddings (texto → vetores)"],
-        ["clustering", "Agrupamento em tópicos (UMAP + HDBSCAN + c-TF-IDF)"],
+        ["consensus", "Tópicos de consenso (15 rodadas de UMAP + HDBSCAN)"],
+        ["clustering", "Agrupamento em tópicos e rótulos (c-TF-IDF)"],
         ["reduce", "Redução de tópicos"],
         ["statistics", "Estatísticas"],
       ];
@@ -581,7 +595,7 @@
         const known = { minilm: "MiniLM", "bge-m3": "bge-m3" };
         const model = known[p.embedding_model] || (p.embedding_model.includes("mpnet") ? "mpnet" : "MiniLM (antigo)");
         const nr = p.nr_topics == null ? "sem redução" : `${p.nr_topics} tópicos`;
-        return `${nr} · ${model} · threshold ${p.threshold}`;
+        return `${nr} · ${model} · threshold ${p.threshold}${p.consenso ? " · consenso" : ""}`;
       }
 
       function scrollTo(node) {
@@ -838,6 +852,7 @@
         $("no-reduce").checked = options.defaults.nr_topics == null;
         $("nr-topics").value = options.defaults.nr_topics ?? 20;
         $("threshold").value = options.defaults.threshold;
+        $("consenso").checked = options.defaults.consenso;
         syncForm();
       }
 
@@ -846,6 +861,7 @@
           embedding_model: $("embedding-model").value,
           nr_topics: $("no-reduce").checked ? null : Number($("nr-topics").value),
           threshold: Number($("threshold").value),
+          consenso: $("consenso").checked,
         };
       }
 
@@ -867,7 +883,9 @@
         const model = $("embedding-model").value;
         let e;
         try {
-          e = await api(`/api/estimate?${new URLSearchParams({ dataset_id: configDataset.id, embedding_model: model })}`);
+          e = await api(`/api/estimate?${new URLSearchParams({
+            dataset_id: configDataset.id, embedding_model: model, consenso: $("consenso").checked,
+          })}`);
         } catch {
           box.hidden = true;
           return;
@@ -899,7 +917,17 @@
         if (min < 60) return `~${min} min`;
         return `~${Math.floor(min / 60)} h ${min % 60} min`;
       }
-      ["nr-topics", "no-reduce", "embedding-model", "threshold"].forEach((id) =>
+      // the threshold means different things with and without consensus (fraction of rounds vs HDBSCAN
+      // probability); switching modes moves it to that mode's default unless the user changed it
+      const THRESHOLD_SEM_CONSENSO = 0.1;
+      $("consenso").addEventListener("change", () => {
+        const [from, to] = $("consenso").checked
+          ? [THRESHOLD_SEM_CONSENSO, options.defaults.threshold]
+          : [options.defaults.threshold, THRESHOLD_SEM_CONSENSO];
+        if (Math.abs(Number($("threshold").value) - from) < 1e-9) $("threshold").value = to;
+        syncForm(); // "input" already fired before this "change"; refresh the shown value
+      });
+      ["nr-topics", "no-reduce", "embedding-model", "threshold", "consenso"].forEach((id) =>
         $(id).addEventListener("input", syncForm),
       );
       $("doc-panel").addEventListener("toggle", () => $("doc-panel").open && loadDocs());
@@ -907,7 +935,9 @@
       let docRows = [];
       async function loadDocs() {
         const p = formParams();
-        const q = new URLSearchParams({ embedding_model: p.embedding_model, threshold: p.threshold });
+        const q = new URLSearchParams({
+          embedding_model: p.embedding_model, threshold: p.threshold, consenso: p.consenso,
+        });
         if (p.nr_topics == null) q.set("sem_reducao", "true");
         else q.set("nr_topics", p.nr_topics);
         docRows = await api(`/api/methodology?${q}`);
@@ -1000,7 +1030,10 @@
         if (run.status === "failed") msg.textContent = run.error;
         if (run.status === "done" && run.summary) {
           const s = run.summary;
-          msg.textContent = `${fmt(s.n_topicos)} tópicos em ${fmt(s.n_discursos)} discursos; ${s.pct_ruido}% ficaram como ruído (sem tópico).`;
+          msg.textContent = s.consenso_rodadas
+            ? `${fmt(s.n_topicos)} tópicos de consenso em ${fmt(s.n_discursos)} discursos; ${s.pct_incertos}% ficam ` +
+              `com o próprio tópico em menos da metade das rodadas (coluna Topico_certeza).`
+            : `${fmt(s.n_topicos)} tópicos em ${fmt(s.n_discursos)} discursos; ${s.pct_ruido}% ficaram como ruído (sem tópico).`;
         }
 
         const actions = $("run-actions");

@@ -75,9 +75,11 @@ def _fetch(conn, pool: ThreadPoolExecutor, pending: list[tuple[int, str]]) -> No
 
 MIN_DOCS = 50
 
-# overall progress (0–1) at the start of each stage; totals fill 0.02→0.1, embeddings 0.1→0.75
+# overall progress (0–1) at the start of each stage; totals fill 0.02→0.1, embeddings 0.1→0.6,
+# consensus rounds 0.6→0.85 (without consensus the bar jumps from 0.6 to 0.85)
 STAGE_PROGRESS = {
-    "loading": 0.0, "totals": 0.02, "bancadas": 0.07, "embeddings": 0.1, "clustering": 0.75, "reduce": 0.88, "statistics": 0.93,
+    "loading": 0.0, "totals": 0.02, "bancadas": 0.07, "embeddings": 0.1, "consensus": 0.6, "clustering": 0.85,
+    "reduce": 0.9, "statistics": 0.94,
 }
 
 # transcripts are published with a delay; a month's total only counts as final this long after it ends
@@ -138,9 +140,18 @@ def _run_pipeline(run_id: int) -> None:
             embedding_model=params["embedding_model"],
             nr_topics=params["nr_topics"],
             multi_label_threshold=params["threshold"],
+            consensus_runs=TopicModelConfig.consensus_runs if params.get("consenso", True) else 1,
         )
+
+        def progress(s: str, pct: float) -> None:
+            if s == "consensus":  # the consensus rounds report their own progress
+                lo, hi = STAGE_PROGRESS["consensus"], STAGE_PROGRESS["clustering"]
+                stage(s, lo + (hi - lo) * pct)
+            else:
+                stage(s)
+
         df, stats = analyze(
-            df, config, embeddings=embeddings, progress_callback=lambda s, _p: stage(s),
+            df, config, embeddings=embeddings, progress_callback=progress,
             period=period, plenary_totals=plenary_totals, bancadas=bancadas, keywords=ds["keywords"],
         )
 
@@ -265,7 +276,7 @@ def _embeddings_for(conn, run_id: int, df, model: str):
     cached = db.load_embeddings(conn, ids, cache_key)
     missing = [i for i, sid in enumerate(ids) if sid not in cached]
 
-    start, end = STAGE_PROGRESS["embeddings"], STAGE_PROGRESS["clustering"]
+    start, end = STAGE_PROGRESS["embeddings"], STAGE_PROGRESS["consensus"]
     db.update_run(conn, run_id, stage="embeddings", progress=start + (end - start) * (1 - len(missing) / len(ids)))
     if missing:
         texts = df[MODEL_TEXT_COLUMN].iloc[missing].tolist()
@@ -286,6 +297,8 @@ def _embeddings_for(conn, run_id: int, df, model: str):
 # tempo das etapas além dos embeddings (spaCy, UMAP, HDBSCAN, rótulos, estatísticas), medido em nov/2026
 OTHER_STAGES_SEC = 20.0
 OTHER_STAGES_SEC_PER_DOC = 0.02
+# cada rodada do consenso (UMAP + HDBSCAN), por discurso: 1.483 discursos, 30 rodadas em 84–109 s (nov/2026)
+CONSENSUS_SEC_PER_DOC_RUN = 0.0025
 SPEED_MIN_DOCS = 50  # a velocidade só é guardada se medida em pelo menos tantos discursos
 
 _device: dict | None = None
@@ -300,9 +313,9 @@ def device() -> dict:
     return _device
 
 
-def estimate(conn, dataset_id: int, model: str) -> dict:
+def estimate(conn, dataset_id: int, model: str, consenso: bool = True) -> dict:
     """Tempo estimado da análise com este modelo, nesta máquina."""
-    from ..pipeline.model_config import EMBEDDING_MODELS, embedding_cache_key
+    from ..pipeline.model_config import CONSENSUS_RUNS, EMBEDDING_MODELS, embedding_cache_key
 
     spec = EMBEDDING_MODELS[model]
     dev = device()
@@ -318,6 +331,8 @@ def estimate(conn, dataset_id: int, model: str) -> dict:
 
     embed = (n_docs - n_cached) * sec_per_doc
     other = OTHER_STAGES_SEC + OTHER_STAGES_SEC_PER_DOC * n_docs
+    if consenso:
+        other += CONSENSUS_SEC_PER_DOC_RUN * CONSENSUS_RUNS * n_docs
     return {
         **dev,
         "n_docs": n_docs,

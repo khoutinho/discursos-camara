@@ -57,6 +57,11 @@ DEFAULT_EMBEDDING_MODEL = 'minilm'
 # (o HDBSCAN divide tópicos grandes sempre que cada parte atinge o mínimo)
 MIN_CLUSTER_SHARE = 0.01
 
+# rodadas do consenso: 15 dão o mesmo resultado que 30 (testes de nov/2026, ver consensus.py)
+CONSENSUS_RUNS = 15
+CONSENSUS_SEED = 42      # sementes 42, 43, …; uma rodada só usa a 42
+CONSENSUS_CUT = 0.5      # tópico = discursos juntos em mais desta fração das rodadas
+
 
 def embedding_cache_key(model_key: str) -> str:
     """Chave do cache de embeddings: muda quando o modelo, os trechos ou a limpeza do texto mudam."""
@@ -85,8 +90,13 @@ class TopicModelConfig:
     # reduce_topics: None = sem redução (todos os tópicos do HDBSCAN), int = número alvo
     nr_topics: int | None = None
 
-    # Multi-label: threshold de probabilidade mínima pra atribuir um tópico
-    multi_label_threshold: float = 0.1
+    # Tópicos de consenso: rodadas de UMAP → HDBSCAN com sementes diferentes (consensus.py).
+    # 1 = uma rodada só (semente 42), como antes de nov/2026.
+    consensus_runs: int = CONSENSUS_RUNS
+
+    # Multi-label: com consenso, fração mínima das rodadas em que o discurso fica junto de outro tópico;
+    # sem consenso, probabilidade mínima do HDBSCAN (pertencimento suave)
+    multi_label_threshold: float = 0.2
 
     # Cache (só usado pela linha de comando; o app guarda embeddings no SQLite)
     cache_dir: Path | None = None
@@ -94,6 +104,12 @@ class TopicModelConfig:
     def __post_init__(self):
         if self.embedding_model not in EMBEDDING_MODELS:
             raise ValueError(f"modelo desconhecido: {self.embedding_model}; opções: {', '.join(EMBEDDING_MODELS)}")
+        if self.consensus_runs < 1:
+            raise ValueError("consensus_runs precisa ser ≥ 1 (1 = uma rodada só, sem consenso)")
+
+    @property
+    def consensus(self) -> bool:
+        return self.consensus_runs > 1
 
     @property
     def spec(self) -> EmbeddingSpec:
@@ -117,6 +133,11 @@ def methodology(cfg: TopicModelConfig, n_docs: int | None = None) -> list[dict]:
         mcs = f'{cfg.resolved_min_cluster_size(n_docs)} (máx. entre {spec.min_cluster_size} e 1% de {n_docs} discursos)'
     else:
         mcs = f'máx. entre {spec.min_cluster_size} e 1% dos discursos'
+    if cfg.consensus:
+        seeds = f'{CONSENSUS_SEED}–{CONSENSUS_SEED + cfg.consensus_runs - 1}'
+        seeds_desc = 'Uma semente fixa por rodada do consenso (ver "Consenso"), para o resultado ser reprodutível.'
+    else:
+        seeds, seeds_desc = CONSENSUS_SEED, 'Semente fixa para tornar o resultado reprodutível.'
     rows = [
         ('Pré-processamento', 'Limpeza do texto', f'v{CLEANING_VERSION}',
          'Antes do embedding e do vocabulário, remove o cabeçalho do orador, falas da Presidência e apartes, '
@@ -133,7 +154,7 @@ def methodology(cfg: TopicModelConfig, n_docs: int | None = None) -> list[dict]:
         ('UMAP', 'n_components', cfg.umap_n_components, 'Número de dimensões após a redução.'),
         ('UMAP', 'min_dist', cfg.umap_min_dist, 'Distância mínima entre pontos; 0 favorece grupos compactos.'),
         ('UMAP', 'metric', 'cosine', 'Medida de similaridade entre embeddings.'),
-        ('UMAP', 'random_state', 42, 'Semente fixa para tornar o resultado reprodutível.'),
+        ('UMAP', 'random_state', seeds, seeds_desc),
         ('HDBSCAN', 'min_cluster_size', mcs,
          'Tamanho mínimo de um tópico; grupos menores viram ruído. Proporcional ao corpus, para o número de '
          'tópicos não crescer só porque a coleta é maior.'),
@@ -143,9 +164,25 @@ def methodology(cfg: TopicModelConfig, n_docs: int | None = None) -> list[dict]:
          'grupos mais finos.'),
         ('HDBSCAN', 'min_samples', cfg.min_samples,
          'Quão conservador é o agrupamento; valores baixos classificam menos discursos como ruído.'),
+    ]
+    if cfg.consensus:
+        rows += [
+            ('Consenso', 'rodadas', cfg.consensus_runs,
+             'UMAP → HDBSCAN rodam com uma semente diferente em cada rodada. Para cada par de discursos, conta-se '
+             'a fração das rodadas em que os dois ficaram no mesmo grupo (matriz de coassociação; ruído não conta '
+             'como junto). Com uma rodada só, parte dos discursos muda de tópico quando a semente muda.'),
+            ('Consenso', 'agrupamento', f'ligação média, corte em {CONSENSUS_CUT}',
+             f'Os tópicos são os grupos de discursos que ficam juntos em mais de {CONSENSUS_CUT:.0%} das rodadas '
+             '(agrupamento hierárquico sobre 1 − coassociação). Grupos menores que min_cluster_size ficam sem '
+             'tópico, como o ruído do HDBSCAN.'),
+            ('Consenso', 'certeza', 'coluna Topico_certeza',
+             'Fração das rodadas em que o discurso ficou junto dos discursos do próprio tópico. Baixa nos '
+             'discursos sem consenso levados ao tópico mais próximo.'),
+        ]
+    rows += [
         ('Ruído', 'reduce_outliers', 'embeddings' if cfg.reduce_outliers else 'não',
-         'Discursos que o HDBSCAN deixou sem tópico (ruído) são atribuídos ao tópico cujo centróide de embeddings '
-         'é mais similar. A coluna Topico_reatribuido do CSV marca esses discursos.'),
+         f'Discursos sem tópico ({"sem consenso" if cfg.consensus else "ruído do HDBSCAN"}) são atribuídos ao tópico '
+         'cujo centróide de embeddings é mais similar. A coluna Topico_reatribuido do CSV marca esses discursos.'),
         ('Redução de tópicos', 'nr_topics', reduce,
          'Número alvo de tópicos; o BERTopic une os tópicos mais parecidos até chegar nele.'),
         ('Vocabulário (c-TF-IDF)', 'ngram_range', '(1, 2)', 'Considera palavras isoladas e pares de palavras.'),
@@ -167,6 +204,9 @@ def methodology(cfg: TopicModelConfig, n_docs: int | None = None) -> list[dict]:
         ('Rótulos', 'MaximalMarginalRelevance diversity', 0.3,
          'Evita palavras redundantes no rótulo (ex.: "mulher" e "mulheres").'),
         ('Multi-label', 'threshold', cfg.multi_label_threshold,
+         'Fração mínima das rodadas do consenso em que o discurso ficou junto dos discursos de outro tópico para '
+         'receber esse tópico além do principal. Abaixo de 0,2 o 2º tópico quase nunca se repetia com outras '
+         'sementes (testes de nov/2026).' if cfg.consensus else
          'Probabilidade mínima (pertencimento suave do HDBSCAN a cada tópico) para um discurso receber um '
          'tópico além do principal.'),
     ]

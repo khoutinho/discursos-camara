@@ -51,7 +51,8 @@ Depois da coleta, **Configurar análise** pede:
 |---|---|---|
 | Modelo de embedding | MiniLM | **MiniLM** roda sem GPU e lê o começo de cada discurso; serve para explorar. **bge-m3** lê o discurso inteiro e dá tópicos mais específicos; use na análise final, com GPU. |
 | Número de tópicos | sem redução | Une os tópicos mais parecidos até sobrar esse número. Sem redução os tópicos ficam mais específicos. |
-| Threshold do multi-label | 0,1 | Probabilidade mínima para um discurso receber um segundo tópico. |
+| Tópicos de consenso | sim | Roda o agrupamento 15 vezes com sementes diferentes e fica com os grupos que se repetem. Tópicos bem mais estáveis; ~1 min a mais a cada 1.500 discursos. |
+| Threshold do multi-label | 0,2 | Fração mínima das rodadas do consenso em que o discurso fica junto de outro tópico para recebê-lo como segundo tópico (sem consenso: probabilidade do HDBSCAN; use ~0,1). |
 
 O formulário estima o tempo antes de rodar. Os embeddings ficam guardados: mudar o número de tópicos ou o threshold não recalcula tudo.
 
@@ -122,7 +123,7 @@ A CLI faz só as tendências por contagem: ela não busca o total de discursos d
 | Fonte | SitaQWeb, só o Plenário (inclui Comissão Geral) |
 | Limpeza | Remove cabeçalho do orador, falas da Presidência, apartes, marcações da sessão, vocativos e fórmulas de encerramento |
 | Embeddings | `paraphrase-multilingual-MiniLM-L12-v2` (128 tokens) ou `BAAI/bge-m3` (discurso inteiro), sobre o texto com acentos |
-| Agrupamento | UMAP (5 dimensões, cosseno) → HDBSCAN (`min_cluster_size` = máx(piso do modelo, 1% dos discursos)). Discursos sem tópico vão para o mais próximo e ficam marcados (`Topico_reatribuido`) |
+| Agrupamento | UMAP (5 dimensões, cosseno) → HDBSCAN (`min_cluster_size` = máx(piso do modelo, 1% dos discursos)), 15 vezes com sementes diferentes. Os tópicos são os grupos de discursos que ficam juntos em mais da metade das rodadas (consenso por ligação média sobre a matriz de coassociação). Discursos sem consenso vão para o tópico mais próximo e ficam marcados (`Topico_reatribuido`); `Topico_certeza` é a fração das rodadas em que cada discurso ficou com o próprio tópico |
 | Rótulos | c-TF-IDF só com substantivos, nomes próprios, adjetivos e particípios (spaCy); saem as palavras presentes em ≥50% dos discursos, que costumam ser as próprias keywords |
 | Ideologia | Partidos classificados segundo Bolognesi, Ribeiro & Codato (2023) |
 | Tendências | Mann-Kendall anual (5+ anos completos) e sazonal (Hirsch & Slack, 1984), sobre a contagem e sobre a proporção em relação ao total de discursos do Plenário no mês. Nos espectros, também a proporção ÷ fatia do espectro nas cadeiras na posse de cada legislatura (API Dados Abertos). A série começa no mês do primeiro discurso encontrado, não na data pesquisada |
@@ -131,7 +132,7 @@ A aba **Estatísticas** do dashboard e o endpoint `/api/methodology` exportam os
 
 ### Limitações conhecidas
 
-- **Estabilidade:** com outra semente do UMAP, parte dos discursos muda de tópico. Compare rodadas antes de tirar conclusões sobre tópicos pequenos.
+- **Estabilidade:** com uma rodada só, outra semente do UMAP muda o tópico de parte dos discursos (ARI ~0,6 entre sementes). O consenso de 15 rodadas resolve a maior parte disso (ARI ~0,88 entre consensos com sementes independentes), mas ~25% dos discursos (bge-m3; ~40% com MiniLM) não ficam de forma estável em nenhum tópico: veja `Topico_certeza` antes de tirar conclusões sobre discursos isolados. Alguns pares de tópicos ficam juntos em ~40% das rodadas, perto do corte; os discursos deles costumam receber o outro como segundo tópico.
 - **Menções de passagem:** muitos discursos citam a keyword uma única vez, e o tópico deles reflete o assunto principal do discurso (homenagens, política local), não o tema pesquisado. Na tabela de tendência por tópico (aba Estatísticas), o switch "Mostrar menções do termo por tópico" mostra a mediana de menções e o % de discursos que citam o termo uma vez só; nenhum discurso é excluído (análises feitas antes desta opção precisam rodar de novo).
 - **Tópicos pequenos** (15–30 discursos em uma década) quase sempre dão "sem tendência" por falta de dados.
 - **Bancadas:** a proporção ÷ bancada usa as cadeiras na posse; trocas de partido durante o mandato não entram. Em 1999–2003 a API não tem o histórico dos deputados e a fatia é aproximada (inclui suplentes).

@@ -5,13 +5,15 @@ Fluxo:
 1. Texto limpo (text_cleaning: sem cabeçalho, vocativos, falas de outros) → sentence-transformer → embeddings
    (discurso dividido em trechos quando o modelo lê pouco; embedding = média dos trechos)
 2. UMAP reduz dimensionalidade dos embeddings
-3. HDBSCAN descobre clusters (tópicos) automaticamente, com pertencimento suave a cada tópico
+3. HDBSCAN descobre clusters (tópicos). Com consenso (padrão), UMAP + HDBSCAN rodam com várias sementes e
+   os tópicos são os grupos que se repetem (consensus.py); o BERTopic recebe esses tópicos prontos
 4. reduce_topics() une tópicos parecidos, se pedido (nr_topics)
 5. reduce_outliers() leva o ruído para o tópico mais próximo, se configurado
 6. CountVectorizer com stopwords de domínio, sem palavras presentes em quase todos os discursos e só com
    palavras de conteúdo (vocabulary.py) → c-TF-IDF → labels
 7. KeyBERT + MMR refinam as labels pra diversidade e relevância
-8. Pertencimento suave por tópico permite multi-label por discurso
+8. Multi-label: com consenso, a fração das rodadas em que o discurso fica junto de cada outro tópico;
+   sem consenso, o pertencimento suave do HDBSCAN
 """
 
 import re
@@ -21,6 +23,8 @@ import warnings
 import numpy as np
 import pandas as pd
 from bertopic import BERTopic
+from bertopic.cluster import BaseCluster
+from bertopic.dimensionality import BaseDimensionalityReduction
 from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
 from bertopic.vectorizers import ClassTfidfTransformer
 from hdbscan import HDBSCAN
@@ -29,7 +33,8 @@ from sklearn.feature_extraction.text import CountVectorizer
 from umap import UMAP
 
 from .config import STOPWORDS_DOMAIN
-from .model_config import EMBEDDING_MODELS, TopicModelConfig, embedding_cache_key, methodology
+from .consensus import coassociation, consensus_labels, membership
+from .model_config import CONSENSUS_SEED, EMBEDDING_MODELS, TopicModelConfig, embedding_cache_key, methodology
 from .vocabulary import TOKEN_PATTERN, non_content_words, ubiquitous_words
 
 warnings.filterwarnings('ignore')
@@ -154,7 +159,11 @@ class TopicModeler:
                 - topics: array de tópico principal por documento
                 - reassigned: array bool — discurso era ruído e foi levado ao tópico mais próximo
                 - n_noise: discursos que o HDBSCAN deixou como ruído (antes da reatribuição)
-                - probabilities: matriz documentos × tópicos de pertencimento suave
+                - probabilities: matriz documentos × tópicos usada no multi-label: pertencimento suave do
+                  HDBSCAN ou, com consenso, fração das rodadas junto de cada tópico (colunas = prob_topic_ids)
+                - prob_topic_ids: tópico de cada coluna de probabilities
+                - certainty: fração das rodadas do consenso em que o discurso ficou com o próprio tópico
+                  (None sem consenso)
                 - topic_labels: dict {topic_id: "label descritiva"}
                 - multi_labels: list de listas — tópicos atribuídos a cada doc (multi-label)
                 - model: o objeto BERTopic treinado
@@ -176,25 +185,34 @@ class TopicModeler:
         embedder = load_embedder(cfg.embedding_model)
         embedder.max_seq_length = min(embedder.max_seq_length, LABEL_MAX_SEQ_LENGTH)
 
-        # ── 2. Componentes do BERTopic ──
-        _cb('clustering', 0.0)
-
-        umap_model = UMAP(
-            n_neighbors=cfg.umap_n_neighbors,
-            n_components=cfg.umap_n_components,
-            min_dist=cfg.umap_min_dist,
-            metric='cosine',
-            random_state=42,
-        )
-
         self.min_cluster_size = cfg.resolved_min_cluster_size(len(docs_list))
-        hdbscan_model = HDBSCAN(
-            min_cluster_size=self.min_cluster_size,
-            min_samples=cfg.min_samples,
-            metric='euclidean',
-            cluster_selection_method=cfg.spec.cluster_selection_method,
-            prediction_data=True,
-        )
+
+        # ── 2. Tópicos de consenso (várias sementes) ou uma rodada de UMAP → HDBSCAN dentro do BERTopic ──
+        coassoc = consensus_topics = None
+        if cfg.consensus:
+            _cb('consensus', 0.0)
+            coassoc = coassociation(embeddings, cfg, self.min_cluster_size,
+                                    progress=lambda pct: _cb('consensus', pct))
+            consensus_topics = consensus_labels(coassoc, self.min_cluster_size)
+            # BERTopic recebe os tópicos prontos (y) e só calcula as representações
+            umap_model = BaseDimensionalityReduction()
+            hdbscan_model = BaseCluster()
+        else:
+            umap_model = UMAP(
+                n_neighbors=cfg.umap_n_neighbors,
+                n_components=cfg.umap_n_components,
+                min_dist=cfg.umap_min_dist,
+                metric='cosine',
+                random_state=CONSENSUS_SEED,
+            )
+            hdbscan_model = HDBSCAN(
+                min_cluster_size=self.min_cluster_size,
+                min_samples=cfg.min_samples,
+                metric='euclidean',
+                cluster_selection_method=cfg.spec.cluster_selection_method,
+                prediction_data=True,
+            )
+        _cb('clustering', 0.0)
 
         vectorizer = _ContentVectorizer(
             stop_words=sorted(
@@ -220,13 +238,14 @@ class TopicModeler:
             ctfidf_model=ctfidf,
             representation_model=representation,
             language='portuguese',
-            calculate_probabilities=True,  # pertencimento suave a cada tópico, usado no multi-label
+            # pertencimento suave a cada tópico, usado no multi-label sem consenso
+            calculate_probabilities=not cfg.consensus,
             verbose=True,
             min_topic_size=self.min_cluster_size,
         )
 
         # ── 3. Fit ──
-        topics, probs = self.model.fit_transform(docs_list, embeddings)
+        topics, probs = self.model.fit_transform(docs_list, embeddings, y=consensus_topics)
 
         # ── 4. Reduzir tópicos (se configurado) ──
         if cfg.nr_topics is not None:
@@ -252,8 +271,17 @@ class TopicModeler:
         # ── 6. Labels ──
         topic_labels = self._extract_labels()
 
-        # ── 7. Multi-label ──
-        multi_labels = self._assign_multi_labels(probs, topics, topic_labels)
+        # ── 7. Certeza e multi-label ──
+        certainty = None
+        prob_ids = list(range(probs.shape[1])) if probs is not None and probs.ndim == 2 else []
+        if coassoc is not None:
+            # núcleo de cada tópico = discursos que o consenso agrupou (sem os reatribuídos)
+            ids, member = membership(coassoc, topics, core=~noise)
+            col = {t: j for j, t in enumerate(ids)}
+            certainty = np.array([member[i, col[t]] if t in col else np.nan for i, t in enumerate(topics)])
+            probs, prob_ids = member, ids
+            del coassoc
+        multi_labels = self._assign_multi_labels(probs, prob_ids, topics, topic_labels)
 
         self.embeddings = embeddings
 
@@ -262,6 +290,8 @@ class TopicModeler:
             'reassigned': reassigned,
             'n_noise': int(noise.sum()),
             'probabilities': probs,
+            'prob_topic_ids': prob_ids,
+            'certainty': certainty,
             'topic_labels': topic_labels,
             'multi_labels': multi_labels,
             'model': self.model,
@@ -311,12 +341,13 @@ class TopicModeler:
     def _assign_multi_labels(
         self,
         probs: np.ndarray | None,
+        prob_ids: list[int],
         topics: np.ndarray,
         labels: dict[int, str],
     ) -> list[list[str]]:
         """
-        Tópicos de cada discurso: o principal primeiro, depois os outros cujo pertencimento suave
-        (coluna j de probs = tópico j) passa do threshold, do maior para o menor.
+        Tópicos de cada discurso: o principal primeiro, depois os outros cujo valor em probs
+        (coluna j = tópico prob_ids[j]) passa do threshold, do maior para o menor.
         """
         threshold = self.config.multi_label_threshold
         multi = []
@@ -326,8 +357,9 @@ class TopicModeler:
                 for j in np.argsort(-probs[i]):
                     if probs[i, j] < threshold:
                         break
-                    if j != main and j in labels:
-                        doc.append(labels[j])
+                    t = prob_ids[j]
+                    if t != main and t in labels:
+                        doc.append(labels[t])
             multi.append(doc)
         return multi
 
