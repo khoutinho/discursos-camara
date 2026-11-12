@@ -65,6 +65,10 @@ ESPECTRO = {
     'MISSÃO': 'Direita',            # Partido Missão (2025)
 }
 
+# Partido de quem fala sem ser deputado (convidados de sessões solenes e comissões gerais).
+# Fica em "Sem classificação" no espectro.
+CONVIDADO = 'CONVIDADO'
+
 # Grafias diferentes da mesma sigla no SitaQWeb → forma usada no ESPECTRO.
 # A comparação ignora maiúsculas ('PCDOB' → 'PCdoB'). Mudanças de nome (PMDB → MDB,
 # PFL → DEM) não entram: são partidos diferentes no tempo.

@@ -4,7 +4,7 @@ Carregamento, limpeza e classificação dos dados.
 
 import pandas as pd
 
-from .config import ESPECTRO, ESPECTRO_3, PARTIDO_GRAFIAS, UF_REGIAO
+from .config import CONVIDADO, ESPECTRO, ESPECTRO_3, PARTIDO_GRAFIAS, UF_REGIAO
 
 _SIGLAS = {k.upper(): k for k in [*ESPECTRO, *PARTIDO_GRAFIAS.values()]} | {
     k.upper(): v for k, v in PARTIDO_GRAFIAS.items()
@@ -44,6 +44,11 @@ def classify_ideology(df: pd.DataFrame) -> pd.DataFrame:
     """Normaliza a coluna Partido e adiciona Espectro7 e Espectro (3 classes)."""
     df = df.copy()
     df['Partido'] = df['Partido'].map(normalize_party)
+    if 'Estado' in df:
+        # deputies always have a state; speeches collected before the parser fix labelled
+        # guests "SEM PARTIDO" or put part of their title in the party field
+        guest = ~df['Estado'].fillna('').astype(str).str.fullmatch(r'[A-Z]{2}')
+        df.loc[guest, 'Partido'] = CONVIDADO
     df['Espectro7'] = df['Partido'].map(ESPECTRO).fillna('Sem classificação')
     df['Espectro'] = df['Espectro7'].map(ESPECTRO_3).fillna('Sem classificação')
     return df
