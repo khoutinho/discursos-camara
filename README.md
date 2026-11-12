@@ -49,7 +49,7 @@ Depois da coleta, **Configurar análise** pede:
 
 | Opção | Padrão | Para quê |
 |---|---|---|
-| Modelo de embedding | MiniLM | **MiniLM** roda sem GPU e lê o começo de cada discurso; serve para explorar. **bge-m3** lê o discurso inteiro e dá tópicos mais específicos; use na análise final, com GPU. |
+| Modelo de embedding | bge-m3 | **bge-m3** lê o discurso inteiro e dá tópicos mais específicos e estáveis; precisa de GPU (em CPU é muito lento). **MiniLM** roda sem GPU e lê o começo de cada discurso; serve para explorar. |
 | Número de tópicos | sem redução | Une os tópicos mais parecidos até sobrar esse número. Sem redução os tópicos ficam mais específicos. |
 | Tópicos de consenso | sim | Roda o agrupamento 15 vezes com sementes diferentes e fica com os grupos que se repetem. Tópicos bem mais estáveis; ~1 min a mais a cada 1.500 discursos. |
 | Threshold do multi-label | 0,2 | Fração mínima das rodadas do consenso em que o discurso fica junto de outro tópico para recebê-lo como segundo tópico (sem consenso: probabilidade do HDBSCAN; use ~0,1). |

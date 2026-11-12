@@ -32,26 +32,26 @@ class EmbeddingSpec:
 
 
 EMBEDDING_MODELS = {
+    'bge-m3': EmbeddingSpec(
+        label='bge-m3 (mais preciso, requer GPU)',
+        descricao='Padrão. Lê o discurso inteiro (até 8.192 tokens). Gerou os tópicos mais específicos e '
+                  'estáveis nos testes. Indicado para a análise final, com GPU; em CPU é muito lento (use o MiniLM).',
+        hf_name='BAAI/bge-m3', max_seq_length=8192, chunk_words=5000,
+        batch_size=2, fp16_on_gpu=True, min_cluster_size=15, cluster_selection_method='eom',
+        ref_sec_per_doc_cpu=2.0, ref_sec_per_doc_gpu=0.045,
+    ),
     'minilm': EmbeddingSpec(
         label='MiniLM (rápido, funciona sem GPU)',
-        descricao='Padrão. Lê o começo de cada discurso (~85 palavras, depois da limpeza). Indicado para '
-                  'computador sem GPU e para testes rápidos; para a análise final, prefira o bge-m3.',
+        descricao='Lê o começo de cada discurso (~85 palavras, depois da limpeza). Indicado para computador '
+                  'sem GPU e para testes rápidos; para a análise final, prefira o bge-m3.',
         # sem trechos: a média dos trechos deixava os discursos parecidos demais e o HDBSCAN juntava quase
         # tudo em um tópico; 'leaf' evita o mesmo colapso em parte das amostras (testes de nov/2026)
         hf_name='paraphrase-multilingual-MiniLM-L12-v2', max_seq_length=128, chunk_words=None,
         batch_size=64, fp16_on_gpu=False, min_cluster_size=10, cluster_selection_method='leaf',
         ref_sec_per_doc_cpu=0.08, ref_sec_per_doc_gpu=0.005,
     ),
-    'bge-m3': EmbeddingSpec(
-        label='bge-m3 (mais preciso, requer GPU)',
-        descricao='Lê o discurso inteiro (até 8.192 tokens). Gerou os tópicos mais específicos nos testes. '
-                  'Indicado para a análise final, com GPU; em CPU é muito lento.',
-        hf_name='BAAI/bge-m3', max_seq_length=8192, chunk_words=5000,
-        batch_size=2, fp16_on_gpu=True, min_cluster_size=15, cluster_selection_method='eom',
-        ref_sec_per_doc_cpu=2.0, ref_sec_per_doc_gpu=0.045,
-    ),
 }
-DEFAULT_EMBEDDING_MODEL = 'minilm'
+DEFAULT_EMBEDDING_MODEL = 'bge-m3'
 
 # min_cluster_size proporcional ao corpus: com valor fixo, o número de tópicos cresce com o corpus
 # (o HDBSCAN divide tópicos grandes sempre que cada parte atinge o mínimo)
