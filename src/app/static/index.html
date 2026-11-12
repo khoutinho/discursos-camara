@@ -978,10 +978,18 @@
           ...(e.lento && e.n_cached < e.n_docs
             ? [el("br"), "Este modelo é muito lento sem GPU; considere o MiniLM."]
             : []),
+          // the model is loaded even with cached embeddings (the topic labels use it)
+          ...(e.modelo_baixado === false
+            ? [el("br"), `Primeiro uso deste modelo: ele será baixado do Hugging Face (${downloadSize(e.download_mb)}), ` +
+                "e o tempo do download não entra na estimativa."]
+            : []),
         );
-        box.classList.toggle("warn", e.lento && e.n_cached < e.n_docs);
+        box.classList.toggle("warn", (e.lento && e.n_cached < e.n_docs) || e.modelo_baixado === false);
         box.hidden = false;
       }
+
+      const downloadSize = (mb) =>
+        mb >= 1000 ? `~${(mb / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} GB` : `~${mb} MB`;
 
       function duration(sec) {
         if (sec < 60) return "menos de 1 min";

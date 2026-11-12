@@ -26,7 +26,16 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Na primeira análise, o modelo de embedding é baixado do Hugging Face (MiniLM: ~470 MB; bge-m3: ~2,3 GB).
+**Espaço em disco.** No Linux, `pip install -r requirements.txt` traz o PyTorch com suporte a GPU NVIDIA (CUDA), que ocupa ~5,3 GB dos ~6,5 GB da instalação. Sem GPU NVIDIA, instale antes a versão só para CPU, bem menor:
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements.txt
+```
+
+No Windows e no macOS, o PyTorch que o `pip` instala já é só para CPU (para usar uma GPU NVIDIA no Windows, veja as instruções em [pytorch.org](https://pytorch.org/get-started/locally/)).
+
+**Modelos.** Na primeira análise, o modelo de embedding é baixado do Hugging Face: MiniLM, ~480 MB; bge-m3 (o padrão), ~2,3 GB de pesos, mas o cache pode chegar a ~4,5 GB, porque a biblioteca também baixa uma cópia dos pesos em outro formato. O formulário da análise avisa quando o modelo ainda não foi baixado. Sem GPU, prefira o MiniLM: o bge-m3 em CPU leva ~2 s por discurso (~50 min para 1.500 discursos).
 
 ## Usando o app
 

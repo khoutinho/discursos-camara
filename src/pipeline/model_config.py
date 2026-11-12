@@ -29,6 +29,12 @@ class EmbeddingSpec:
     # usados na estimativa de tempo até o app medir a máquina de quem está usando
     ref_sec_per_doc_cpu: float
     ref_sec_per_doc_gpu: float
+    download_mb: int           # pesos baixados do Hugging Face no primeiro uso (aviso no formulário)
+
+    @property
+    def hf_repo(self) -> str:
+        """Repositório no Hugging Face (o sentence-transformers completa os nomes sem organização)."""
+        return self.hf_name if '/' in self.hf_name else f'sentence-transformers/{self.hf_name}'
 
 
 EMBEDDING_MODELS = {
@@ -39,6 +45,9 @@ EMBEDDING_MODELS = {
         hf_name='BAAI/bge-m3', max_seq_length=8192, chunk_words=5000,
         batch_size=2, fp16_on_gpu=True, min_cluster_size=15, cluster_selection_method='eom',
         ref_sec_per_doc_cpu=2.0, ref_sec_per_doc_gpu=0.045,
+        # pesos de 2,27 GB; o repositório só tem o .bin, e o transformers baixa também a cópia .safetensors
+        # de um ramo de conversão: no cache de desenvolvimento ficaram 4,5 GB (nov/2026)
+        download_mb=2300,
     ),
     'minilm': EmbeddingSpec(
         label='MiniLM (rápido, funciona sem GPU)',
@@ -49,6 +58,7 @@ EMBEDDING_MODELS = {
         hf_name='paraphrase-multilingual-MiniLM-L12-v2', max_seq_length=128, chunk_words=None,
         batch_size=64, fp16_on_gpu=False, min_cluster_size=10, cluster_selection_method='leaf',
         ref_sec_per_doc_cpu=0.08, ref_sec_per_doc_gpu=0.005,
+        download_mb=480,
     ),
 }
 DEFAULT_EMBEDDING_MODEL = 'bge-m3'
