@@ -35,7 +35,7 @@ pip install -r requirements.txt
 
 No Windows e no macOS, o PyTorch que o `pip` instala já é só para CPU (para usar uma GPU NVIDIA no Windows, veja as instruções em [pytorch.org](https://pytorch.org/get-started/locally/)).
 
-**Modelos.** Na primeira análise, o modelo de embedding é baixado do Hugging Face: MiniLM, ~480 MB; bge-m3 (o padrão), ~2,3 GB de pesos, mas o cache pode chegar a ~4,5 GB, porque a biblioteca também baixa uma cópia dos pesos em outro formato. O formulário da análise avisa quando o modelo ainda não foi baixado. Sem GPU, prefira o MiniLM: o bge-m3 em CPU leva ~2 s por discurso (~50 min para 1.500 discursos).
+**Modelos.** Na primeira análise, o modelo de embedding é baixado do Hugging Face: MiniLM, ~480 MB; bge-m3 (o padrão), ~2,3 GB. O formulário da análise avisa quando o modelo ainda não foi baixado. Depois disso, o app lê o modelo só do computador, sem consultar o Hugging Face: a análise usa sempre a mesma versão do modelo. Não é preciso conta nem token; quem tiver um pode definir `HF_TOKEN` para o primeiro download ser mais rápido. Sem GPU, prefira o MiniLM: o bge-m3 em CPU leva ~2 s por discurso (~50 min para 1.500 discursos).
 
 ## Usando o app
 

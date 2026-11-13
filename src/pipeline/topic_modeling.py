@@ -16,8 +16,14 @@ Fluxo:
    sem consenso, o pertencimento suave do HDBSCAN
 """
 
+import os
 import time
 import warnings
+
+# Models published only as .bin (bge-m3) make transformers look for a .safetensors conversion on the Hub
+# at every load, in a background thread that ignores local_files_only: a request per analysis (with the
+# "unauthenticated requests" warning) and, the first time, a second 2.3 GB copy of the weights.
+os.environ.setdefault('DISABLE_SAFETENSORS_CONVERSION', '1')
 
 import numpy as np
 import pandas as pd
@@ -53,8 +59,20 @@ def split_words(text: str, n_words: int | None) -> list[str]:
 
 
 def load_embedder(model_key: str) -> SentenceTransformer:
+    """
+    Carrega o modelo de embedding. Já baixado, ele é lido só do cache, sem consultar o Hugging Face:
+    a análise não depende da internet nessa etapa e usa sempre a mesma versão do modelo. Se faltar
+    algum arquivo no cache, baixa normalmente.
+    """
     spec = EMBEDDING_MODELS[model_key]
-    model = SentenceTransformer(spec.hf_name)
+    model = None
+    if spec.is_cached():
+        try:
+            model = SentenceTransformer(spec.hf_name, local_files_only=True)
+        except OSError:
+            model = None
+    if model is None:
+        model = SentenceTransformer(spec.hf_name)
     model.max_seq_length = spec.max_seq_length
     if spec.fp16_on_gpu and model.device.type == 'cuda':
         model.half()

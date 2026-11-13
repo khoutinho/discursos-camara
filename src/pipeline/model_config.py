@@ -36,6 +36,15 @@ class EmbeddingSpec:
         """Repositório no Hugging Face (o sentence-transformers completa os nomes sem organização)."""
         return self.hf_name if '/' in self.hf_name else f'sentence-transformers/{self.hf_name}'
 
+    def is_cached(self) -> bool:
+        """O modelo já está no cache do Hugging Face? (pesos quase completos; um download interrompido não conta)"""
+        try:
+            from huggingface_hub import scan_cache_dir  # só lê a pasta do cache, sem acessar a internet
+            repos = {r.repo_id: r.size_on_disk for r in scan_cache_dir().repos}
+        except Exception:  # no cache yet, or an unreadable one
+            return False
+        return repos.get(self.hf_repo, 0) >= 0.9 * self.download_mb * 1e6
+
 
 EMBEDDING_MODELS = {
     'bge-m3': EmbeddingSpec(
@@ -45,8 +54,8 @@ EMBEDDING_MODELS = {
         hf_name='BAAI/bge-m3', max_seq_length=8192, chunk_words=5000,
         batch_size=2, fp16_on_gpu=True, min_cluster_size=15, cluster_selection_method='eom',
         ref_sec_per_doc_cpu=2.0, ref_sec_per_doc_gpu=0.045,
-        # pesos de 2,27 GB; o repositório só tem o .bin, e o transformers baixa também a cópia .safetensors
-        # de um ramo de conversão: no cache de desenvolvimento ficaram 4,5 GB (nov/2026)
+        # pesos de 2,27 GB (só .bin no repositório; a conversão para .safetensors, que baixava uma segunda
+        # cópia, está desligada em topic_modeling.py)
         download_mb=2300,
     ),
     'minilm': EmbeddingSpec(

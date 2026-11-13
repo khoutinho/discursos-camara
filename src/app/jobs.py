@@ -313,16 +313,6 @@ def device() -> dict:
     return _device
 
 
-def _model_downloaded(spec) -> bool:
-    """O modelo já está no cache do Hugging Face? (pesos quase completos; um download interrompido não conta)"""
-    try:
-        from huggingface_hub import scan_cache_dir
-        repos = {r.repo_id: r.size_on_disk for r in scan_cache_dir().repos}
-    except Exception:  # no cache yet, or an unreadable one
-        return False
-    return repos.get(spec.hf_repo, 0) >= 0.9 * spec.download_mb * 1e6
-
-
 def estimate(conn, dataset_id: int, model: str, consenso: bool = True) -> dict:
     """Tempo estimado da análise com este modelo, nesta máquina."""
     from ..pipeline.model_config import CONSENSUS_RUNS, EMBEDDING_MODELS, embedding_cache_key
@@ -346,7 +336,7 @@ def estimate(conn, dataset_id: int, model: str, consenso: bool = True) -> dict:
         other += CONSENSUS_SEC_PER_DOC_RUN * CONSENSUS_RUNS * n_docs
     return {
         **dev,
-        "modelo_baixado": _model_downloaded(spec),
+        "modelo_baixado": spec.is_cached(),
         "download_mb": spec.download_mb,
         "n_docs": n_docs,
         "n_cached": n_cached,
