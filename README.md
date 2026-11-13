@@ -10,9 +10,9 @@ O projeto nasceu de uma pesquisa sobre violência contra a mulher no discurso pa
 
 ## O que ele faz
 
-1. **Coleta** os discursos que citam as keywords num período, com orador, partido, estado, fase da sessão e texto completo, direto do [SitaQWeb](https://www.camara.leg.br/internet/sitaqweb/pesquisaDiscursos.asp). Também aceita importar um CSV.
+1. **Coleta** os discursos que citam as keywords num período, com orador, partido, estado, fase da sessão e texto completo, direto do [SitaQWeb](https://www.camara.leg.br/internet/sitaqweb/pesquisaDiscursos.asp). Também aceita importar um CSV e juntar coletas.
 2. **Analisa**: limpa o texto (cabeçalhos, falas da Presidência, vocativos), gera embeddings, agrupa em tópicos e dá um rótulo a cada tópico.
-3. **Mostra** tudo num dashboard com sete abas: visão geral, esquerda × direita, tópicos, regiões, partidos, vocabulário e estatísticas. Os gráficos saem em PNG, e o dashboard pode ser exportado como um HTML único que abre sem o app.
+3. **Mostra** tudo num dashboard com sete abas: visão geral, esquerda × direita, tópicos (com um mapa 2D dos discursos), regiões, partidos (com os deputados que mais discursaram), vocabulário (as palavras características de cada espectro) e estatísticas (testes de tendência). Os gráficos saem em PNG, com fundo escuro ou claro, e o dashboard pode ser exportado como um HTML único que abre sem o app.
 
 ## Instalação
 
@@ -49,7 +49,7 @@ Abra <http://127.0.0.1:8000>. Há três jeitos de começar:
 - **Já possuo CSV**: colunas `Data, Sessao, Orador, Partido, Estado, Fase, Hora, Discurso`, em UTF-8 e com acentos.
 - **Já possuo dashboard_data**: abre um `dashboard_data.json` gerado antes.
 
-![Formulário de nova coleta, com a sugestão de acento](assets/coleta.png)
+![Tela inicial: formulário de nova coleta, com a sugestão de acento, e a tabela de coletas](assets/coleta.png)
 
 > [!IMPORTANT]
 > **Escreva as keywords com acento.** O índice do SitaQWeb mudou no fim de 2022: discursos até 2022 só são encontrados pela forma acentuada. "feminicídio" encontra 1.483 discursos de 2015 a 2026; "feminicidio", só 702. O app busca a forma sem acento junto, mas não consegue adivinhar a acentuada, por isso o formulário sugere a correção.
@@ -67,7 +67,7 @@ Depois da coleta, **Configurar análise** pede:
 
 O formulário estima o tempo antes de rodar. Os embeddings ficam guardados: mudar o número de tópicos ou o threshold não recalcula tudo.
 
-![Aba de tópicos do dashboard](assets/dashboard-topicos.png)
+![Aba Tópicos do dashboard: mapa dos discursos, tópicos por espectro e evolução dos tópicos](assets/dashboard-topicos.png)
 
 ## API
 
@@ -96,14 +96,17 @@ curl -O http://127.0.0.1:8000/api/runs/1/discursos_processados.csv
 |---|---|
 | `GET /api/datasets` · `GET /api/datasets/{id}` | Lista coletas e importações |
 | `POST /api/datasets/scrape` | Inicia uma coleta |
+| `GET /api/datasets/{id}/events` | Progresso da coleta (SSE) |
 | `POST /api/datasets/import` | Importa um CSV (multipart, campo `file`) |
 | `POST /api/datasets/{id}/resume` | Retoma uma coleta interrompida |
 | `GET /api/datasets/merge/preview?ids=1&ids=2` · `POST /api/datasets/merge` | Prévia e criação de uma junção de coletas (`{"dataset_ids": [1, 2]}`) |
 | `GET /api/datasets/{id}/csv` | Baixa os discursos coletados |
 | `GET /api/accents?words=...` | Formas acentuadas de palavras digitadas sem acento |
 | `GET /api/estimate?dataset_id=...` | Estimativa de tempo da análise |
+| `GET /api/runs` | Lista as análises |
 | `POST /api/runs` · `GET /api/runs/{id}` | Inicia e acompanha uma análise |
 | `GET /api/runs/{id}/events` | Progresso da análise (SSE) |
+| `GET /api/runs/{id}/dashboard_data.json` · `.../discursos_processados.csv` · `.../dashboard.html` | Resultados: dados do dashboard, CSV com o tópico de cada discurso e dashboard em HTML único |
 | `GET /api/methodology` | Parâmetros de cada etapa, para a seção de métodos |
 | `DELETE /api/datasets/{id}` · `DELETE /api/runs/{id}` | Exclui coleta ou análise |
 
@@ -138,6 +141,8 @@ A CLI faz só as tendências por contagem: ela não busca o total de discursos d
 | Agrupamento | UMAP (5 dimensões, cosseno) → HDBSCAN (`min_cluster_size` = máx(piso do modelo, 1% dos discursos)), 15 vezes com sementes diferentes. Os tópicos são os grupos de discursos que ficam juntos em mais da metade das rodadas (consenso por ligação média sobre a matriz de coassociação). Discursos sem consenso vão para o tópico mais próximo e ficam marcados (`Topico_reatribuido`); `Topico_certeza` é a fração das rodadas em que cada discurso ficou com o próprio tópico |
 | Rótulos | c-TF-IDF só com substantivos, nomes próprios, adjetivos e particípios (spaCy); saem as palavras presentes em ≥50% dos discursos, que costumam ser as próprias keywords |
 | Ideologia | Partidos classificados segundo Bolognesi, Ribeiro & Codato (2023) |
+| Vocabulário | Palavras características de cada espectro: log-odds com prior de Dirichlet informativo (Monroe, Colaresi & Quinn, 2008), cada espectro contra os outros dois, contando em quantos discursos cada palavra aparece |
+| Mapa | Uma rodada de UMAP em 2 dimensões sobre os mesmos embeddings, só para visualização (os tópicos vêm do agrupamento em 5 dimensões) |
 | Tendências | Mann-Kendall anual (5+ anos completos) e sazonal (Hirsch & Slack, 1984), sobre a contagem e sobre a proporção em relação ao total de discursos do Plenário no mês. Nos espectros, também a proporção ÷ fatia do espectro nas cadeiras na posse de cada legislatura (API Dados Abertos). A série começa no mês do primeiro discurso encontrado, não na data pesquisada |
 
 A aba **Estatísticas** do dashboard e o endpoint `/api/methodology` exportam os parâmetros usados em cada análise, prontos para a seção de métodos.
