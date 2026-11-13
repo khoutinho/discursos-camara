@@ -2193,7 +2193,11 @@
             document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
             document.querySelectorAll(".section").forEach((s) => s.classList.remove("active"));
             tab.classList.add("active");
-            document.getElementById("section-" + tab.dataset.section).classList.add("active");
+            const section = document.getElementById("section-" + tab.dataset.section);
+            section.classList.add("active");
+            // charts drawn while their tab was hidden have size 0; Chart.js does not always notice
+            // the tab appearing, so resize them explicitly
+            section.querySelectorAll("canvas").forEach((c) => Chart.getChart(c)?.resize());
           };
           tab.addEventListener("click", activate);
           tab.addEventListener("keydown", (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), activate()));
