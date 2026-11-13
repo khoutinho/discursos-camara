@@ -1047,30 +1047,32 @@
 
         <!-- VOCABULÁRIO -->
         <div id="section-vocab" class="section">
-          <div class="card" style="margin-bottom: 1rem">
-            <label class="switch" id="vocab-switch">
-              <input type="checkbox" id="vocab-toggle" />
-              <span class="switch-track" aria-hidden="true"></span>
-              Mostrar as palavras mais frequentes
-            </label>
-            <p class="card-desc" id="vocab-desc" style="margin: 0"></p>
-          </div>
-          <div class="grid grid-3">
-            <div class="card">
-              <div class="card-title">
-                <span>🔴 Esquerda — palavras <span class="vocab-modo"></span></span>
+          <div class="card">
+            <div class="card-title">Vocabulário por espectro</div>
+            <div class="mk-intro">
+              <p class="card-desc">
+                <strong>Características</strong>: as palavras que cada espectro usa mais que os outros dois.
+                <strong>Mais frequentes</strong>: as que mais aparecem nos discursos do espectro.
+              </p>
+              <div class="seg" role="radiogroup" aria-label="Palavras mostradas">
+                <button role="radio" data-vocab="caracteristicas">Características</button>
+                <button role="radio" data-vocab="frequentes">Mais frequentes</button>
               </div>
-              <div id="wc-esq" class="wcloud"></div>
             </div>
-            <div class="card">
-              <div class="card-title">
-                <span>🔵 Direita — palavras <span class="vocab-modo"></span></span>
+            <p class="card-desc" id="vocab-desc"></p>
+            <div class="mk-grid">
+              <div class="mk-card">
+                <div class="mk-card-title" style="color: var(--esq)">Esquerda</div>
+                <div id="wc-esq" class="wcloud"></div>
               </div>
-              <div id="wc-dir" class="wcloud"></div>
-            </div>
-            <div class="card">
-              <div class="card-title"><span>🟡 Centro — palavras <span class="vocab-modo"></span></span></div>
-              <div id="wc-cen" class="wcloud"></div>
+              <div class="mk-card">
+                <div class="mk-card-title" style="color: var(--dir)">Direita</div>
+                <div id="wc-dir" class="wcloud"></div>
+              </div>
+              <div class="mk-card">
+                <div class="mk-card-title" style="color: var(--cen)">Centro</div>
+                <div id="wc-cen" class="wcloud"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -1845,23 +1847,29 @@
       }
 
       // ── VOCABULÁRIO ──────────────────────────────────────────────────────
+      // characteristic words (log-odds) by default; the most frequent ones on the other tab
+      let vocabModo = null;
+
       function renderVocab() {
-        // characteristic words (log-odds) by default; the most frequent ones behind the switch
         const FW = D.vocabulario_caracteristico;
-        const toggle = document.getElementById("vocab-toggle");
-        toggle.disabled = !FW;
-        if (!FW) toggle.checked = true;
-        document.getElementById("vocab-switch").title = FW
-          ? ""
-          : "As palavras características não estão nesta análise (gerada antes desta opção). Rode a análise de novo.";
-        toggle.onchange = renderVocab;
-        const freq = toggle.checked;
+        if (!vocabModo || !FW) vocabModo = FW ? "caracteristicas" : "frequentes";
+        document.querySelectorAll(".seg button[data-vocab]").forEach((b) => {
+          b.disabled = b.dataset.vocab === "caracteristicas" && !FW;
+          b.title = b.disabled
+            ? "As palavras características não estão nesta análise (gerada antes desta opção). Rode a análise de novo."
+            : "";
+          b.setAttribute("aria-checked", String(b.dataset.vocab === vocabModo));
+          b.onclick = () => {
+            vocabModo = b.dataset.vocab;
+            renderVocab();
+          };
+        });
+        const freq = vocabModo === "frequentes";
         const br = (v, d = 1) => Number(v).toLocaleString("pt-BR", { maximumFractionDigits: d });
-        document.querySelectorAll(".vocab-modo").forEach((s) => (s.textContent = freq ? "mais frequentes" : "características"));
         document.getElementById("vocab-desc").innerHTML = freq
-          ? "As palavras que mais aparecem nos discursos de cada espectro. São quase as mesmas nos três: mostram o assunto comum, não o que diferencia cada espectro." +
+          ? "Palavras de 4+ letras, sem stopwords. São quase as mesmas nos três espectros: mostram o assunto comum, não o que diferencia cada um." +
             (FW ? "" : " <strong>Esta análise foi gerada antes das palavras características; rode de novo para vê-las.</strong>")
-          : "O que cada espectro diz mais que os outros dois: log-odds com prior informativo (Monroe, Colaresi &amp; Quinn, 2008), " +
+          : "Log-odds com prior informativo (Monroe, Colaresi &amp; Quinn, 2008), " +
             "contando em quantos discursos cada palavra aparece. Tamanho = escore z (a mesma escala nos três). " +
             `<span class="wtag-fraca-ex">Apagadas</span>: z &lt; ${br(FW.z_min, 2)}, diferença não significativa (comum em espectros com poucos discursos). ` +
             "Um orador muito ativo pode puxar uma palavra. Passe o mouse para ver em quantos discursos ela aparece.";
