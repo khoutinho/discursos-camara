@@ -707,6 +707,51 @@
         min-width: 0;
       }
 
+      /* room for one line (two on phones) in every mode, so the map keeps its size */
+      .mapa-legenda {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
+        gap: 0.3rem 1.1rem;
+        min-height: 1.6rem;
+        margin-bottom: 0.4rem;
+        font: 0.72rem "IBM Plex Sans", sans-serif;
+        color: var(--dim);
+        text-align: center;
+      }
+
+      .mapa-legenda strong {
+        color: var(--text);
+        font-weight: 500;
+      }
+
+      .mapa-legenda-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        max-width: 100%;
+        white-space: nowrap;
+      }
+
+      .mapa-legenda-txt {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .mapa-legenda-dot {
+        width: 0.6rem;
+        height: 0.6rem;
+        border-radius: 50%;
+        flex: none;
+      }
+
+      @media (max-width: 640px) {
+        .mapa-legenda {
+          min-height: 3.2rem;
+        }
+      }
+
       .mapa-wrap {
         position: relative;
         max-width: 1100px;
@@ -989,6 +1034,8 @@
                   <select id="mapa-topico"></select>
                 </label>
               </div>
+              <!-- legend outside the chart, with a fixed height: switching colour modes must not resize the map -->
+              <div class="mapa-legenda" id="mapa-legenda" aria-live="polite"></div>
               <div class="mapa-wrap" id="mapa-wrap"><canvas id="ch-mapa"></canvas></div>
             </div>
             <div class="card">
@@ -1561,6 +1608,7 @@
         const desc = document.getElementById("mapa-desc");
         if (!M) {
           document.getElementById("mapa-controles").hidden = true;
+          document.getElementById("mapa-legenda").hidden = true;
           document.getElementById("mapa-wrap").hidden = true;
           desc.textContent = "Esta análise foi gerada antes do mapa. Rode a análise de novo para ver o mapa dos discursos.";
           return;
@@ -1637,9 +1685,22 @@
         const cx = (x0 + x1) / 2;
         const cy = (y0 + y1) / 2;
 
+        // legend line above the map (a legend inside the chart would shrink the map when it appears)
+        const legenda = document.getElementById("mapa-legenda");
+        if (mapaCor === "topico" && destaque === null) {
+          legenda.innerHTML = "<span>Cada cor é um tópico. Use <strong>Destacar</strong> para ver um tópico só.</span>";
+        } else {
+          const item = (color, label) =>
+            `<span class="mapa-legenda-item" title="${esc(label)}"><span class="mapa-legenda-dot" style="background:${color}"></span>` +
+            `<span class="mapa-legenda-txt">${esc(label)}</span></span>`;
+          legenda.innerHTML = [...datasets.filter((d) => d.data !== outros), ...datasets.filter((d) => d.data === outros)]
+            .map((d) => item(d.data === outros ? "rgba(107, 117, 146, 0.6)" : d.backgroundColor, d.label))
+            .join("");
+        }
+
         const canvas = document.getElementById("ch-mapa");
         Chart.getChart(canvas)?.destroy();
-        new Chart(canvas, {
+        const chart = new Chart(canvas, {
           type: "scatter",
           data: { datasets },
           options: {
@@ -1653,8 +1714,8 @@
               y: { display: false, min: cy - h / 2, max: cy + h / 2 },
             },
             plugins: {
-              // 29+ topics do not fit a legend: the "Destacar" select does that job
-              legend: { display: mapaCor === "espectro", labels: { usePointStyle: true, boxWidth: 8 } },
+              // on screen the legend is the HTML line above; the PNG export turns this one on (exportLegend)
+              legend: { display: false, labels: { usePointStyle: true, boxWidth: 8 } },
               tooltip: {
                 callbacks: {
                   title: (items) => {
@@ -1667,6 +1728,8 @@
             },
           },
         });
+        // the PNG has no HTML legend: it draws the chart's own, when there is a legend to show
+        chart.$exportLegend = mapaCor === "espectro" || destaque !== null;
       }
 
       function renderTopicos() {
@@ -2263,13 +2326,16 @@
           url = lightPng(chart);
         } else {
           const previous = chart.options.devicePixelRatio;
+          const legend = chart.options.plugins.legend.display;
           chart.$exportBg = getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || "#10131a";
           chart.options.devicePixelRatio = 3; // high resolution for papers and slides
+          if (chart.$exportLegend) chart.options.plugins.legend.display = true;
           chart.resize();
           chart.update("none");
           url = chart.toBase64Image("image/png", 1);
           chart.$exportBg = null;
           chart.options.devicePixelRatio = previous;
+          chart.options.plugins.legend.display = legend;
           chart.resize();
           chart.update("none");
         }
@@ -2306,7 +2372,7 @@
             devicePixelRatio: 3, // high resolution for papers and slides
             color: LIGHT.text,
             scales,
-            plugins: { legend: { labels: { color: LIGHT.text } } },
+            plugins: { legend: { labels: { color: LIGHT.text }, ...(chart.$exportLegend ? { display: true } : {}) } },
           },
         ]);
         const data = {
