@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0c10'/%3E%3Cpath d='M8.5 25 15 7M17 25l6.5-18' stroke='%2300e5b0' stroke-width='3.6' stroke-linecap='round'/%3E%3C/svg%3E" />
     <title>NLP Dashboard — Discursos da Câmara</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <!-- served by the app; the exported HTML gets the file's contents inline (main.py) -->
+    <script src="/vendor/chart.umd.min.js"></script>
     <link
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap"
       rel="stylesheet"
@@ -806,8 +807,23 @@
         line-height: 1.4;
       }
 
-      body.standalone .app-only {
+      /* hidden unless the script confirms the page was opened by the app: without JavaScript (file
+         previews on phones) the button would lead nowhere */
+      body:not(.in-app) .app-only {
         display: none;
+      }
+
+      #loader .noscript-msg {
+        max-width: 34rem;
+        margin: 0 auto 1.2rem;
+        padding: 0.8rem 1rem;
+        border-left: 3px solid var(--cen);
+        background: var(--surface2);
+        border-radius: 0 6px 6px 0;
+        color: var(--text);
+        font-size: 0.85rem;
+        line-height: 1.6;
+        text-align: left;
       }
 
       @media (max-width: 900px) {
@@ -840,6 +856,17 @@
     <!-- LOADER / FILE INPUT -->
     <div id="loader">
       <h1>// CÂMARA NLP</h1>
+      <noscript>
+        <p class="noscript-msg">
+          <strong>Este dashboard precisa de JavaScript.</strong> Abra o arquivo num navegador (Chrome, Safari,
+          Firefox, Edge). Prévias de arquivo, como as do WhatsApp, do Gmail, do Drive e do app Arquivos, mostram a
+          página sem rodar os gráficos. No celular, use "Abrir com" e escolha o navegador.
+        </p>
+      </noscript>
+      <p class="noscript-msg" id="nochart-msg" hidden>
+        <strong>A biblioteca de gráficos (Chart.js) não carregou</strong>, então o dashboard não pode ser montado.
+        Baixe o dashboard de novo pelo app ou abra o arquivo noutro navegador.
+      </p>
       <p>
         Dashboard de análise dos discursos parlamentares sobre violência contra
         a mulher e temas relacionados.
@@ -1188,6 +1215,10 @@
 
     <!--DASHBOARD_DATA-->
     <script>
+      // separate block: the main script stops at its first line without Chart.js, and would fail silently
+      if (!window.Chart) document.getElementById("nochart-msg").hidden = false;
+    </script>
+    <script>
       // ── CHART DEFAULTS ──────────────────────────────────────────────────
       Chart.defaults.color = "#6b7592";
       Chart.defaults.borderColor = "#1e2330";
@@ -1260,11 +1291,9 @@
       // ── CARREGAMENTO ────────────────────────────────────────────────────
       // 1) dados embutidos (dashboard exportado em HTML) 2) ?run=ID (app) 3) arquivo escolhido
       async function boot() {
-        if (window.DASHBOARD_DATA) {
-          document.body.classList.add("standalone");
-          return initDashboard(window.DASHBOARD_DATA);
-        }
-        if (location.protocol === "file:") document.body.classList.add("standalone");
+        if (window.DASHBOARD_DATA) return initDashboard(window.DASHBOARD_DATA);
+        // opened by the app (not an exported file): the "back to the app" button makes sense
+        if (location.protocol !== "file:") document.body.classList.add("in-app");
         const run = new URLSearchParams(location.search).get("run");
         if (!run) return;
         try {

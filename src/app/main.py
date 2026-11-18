@@ -439,14 +439,29 @@ def run_processed_csv(run_id: int):
                         filename=f"discursos_processados_{run_id}.csv")
 
 
+CHART_JS = STATIC / "vendor" / "chart.umd.min.js"
+CHART_JS_TAG = '<script src="/vendor/chart.umd.min.js"></script>'
+
+
 @app.get("/api/runs/{run_id}/dashboard.html")
 def run_dashboard_standalone(run_id: int):
-    """Dashboard com os dados embutidos: abre em qualquer navegador, sem o app."""
+    """
+    Dashboard num HTML único, com os dados e o Chart.js embutidos: abre em qualquer navegador, sem o app
+    e sem internet (só as fontes vêm da internet; sem elas o navegador usa as fontes do sistema).
+    """
     # "</" inside the JSON would end the <script> element early
     data = _run_file(run_id, "dashboard_data.json").read_text(encoding="utf-8").replace("</", "<\\/")
     inline = f"<script>window.DASHBOARD_DATA = {data};</script>"
-    page = (STATIC / "dashboard.html").read_text(encoding="utf-8").replace("<!--DASHBOARD_DATA-->", inline, 1)
+    page = (STATIC / "dashboard.html").read_text(encoding="utf-8")
+    page = page.replace(CHART_JS_TAG, f"<script>{CHART_JS.read_text(encoding='utf-8')}</script>", 1)
+    page = page.replace("<!--DASHBOARD_DATA-->", inline, 1)
     return HTMLResponse(page, headers={"Content-Disposition": f'attachment; filename="dashboard_{run_id}.html"'})
+
+
+@app.get("/vendor/chart.umd.min.js", include_in_schema=False)
+def chart_js():
+    """Chart.js servido pelo app (o dashboard não depende de CDN, nem dentro do app)."""
+    return FileResponse(CHART_JS, media_type="text/javascript")
 
 
 @app.get("/", include_in_schema=False)

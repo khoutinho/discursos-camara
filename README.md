@@ -12,7 +12,7 @@ O projeto nasceu de uma pesquisa sobre violência contra a mulher no discurso pa
 
 1. **Coleta** os discursos que citam as keywords num período, com orador, partido, estado, fase da sessão e texto completo, direto do [SitaQWeb](https://www.camara.leg.br/internet/sitaqweb/pesquisaDiscursos.asp). Também aceita importar um CSV e juntar coletas.
 2. **Analisa**: limpa o texto (cabeçalhos, falas da Presidência, vocativos), gera embeddings, agrupa em tópicos e dá um rótulo a cada tópico.
-3. **Mostra** tudo num dashboard com sete abas: visão geral, esquerda × direita, tópicos (com um mapa 2D dos discursos), regiões, partidos (com os deputados que mais discursaram), vocabulário (as palavras características de cada espectro) e estatísticas (testes de tendência). Os gráficos saem em PNG, com fundo escuro ou claro, e o dashboard pode ser exportado como um HTML único que abre sem o app.
+3. **Mostra** tudo num dashboard com sete abas: visão geral, esquerda × direita, tópicos (com um mapa 2D dos discursos), regiões, partidos (com os deputados que mais discursaram), vocabulário (as palavras características de cada espectro) e estatísticas (testes de tendência). Os gráficos saem em PNG, com fundo escuro ou claro, e o dashboard pode ser exportado como um HTML único, com os dados e a biblioteca de gráficos embutidos, que abre sem o app e sem internet. No celular, abra o arquivo num navegador: prévias de arquivo (WhatsApp, Drive, app Arquivos) não rodam JavaScript.
 
 ## Instalação
 
@@ -178,4 +178,4 @@ Os dados (banco, embeddings, resultados) ficam em `data/`, fora do git.
 
 - Discursos: Câmara dos Deputados, via SitaQWeb.
 - Mapa de acentos (`src/scraper/acentos_pt_BR.tsv`): gerado a partir do dicionário pt_BR do LibreOffice ([projeto VERO](https://pt-br.libreoffice.org/projetos/projeto-vero-verificador-ortografico/), LGPLv3/MPL 2.0), filtrado pela lista de frequência do [wordfreq](https://github.com/rspeer/wordfreq) (CC BY-SA 4.0). O arquivo é distribuído sob CC BY-SA 4.0.
-- [BERTopic](https://maartengr.github.io/BERTopic/) (Grootendorst, 2022), [sentence-transformers](https://www.sbert.net/), [pymannkendall](https://github.com/mmhs013/pyMannKendall), [Chart.js](https://www.chartjs.org/).
+- [BERTopic](https://maartengr.github.io/BERTopic/) (Grootendorst, 2022), [sentence-transformers](https://www.sbert.net/), [pymannkendall](https://github.com/mmhs013/pyMannKendall), [Chart.js](https://www.chartjs.org/). O Chart.js v4.4.1 vai junto no repositório (`src/app/static/vendor/`), com a licença MIT dele (`chart.js-LICENSE.md`).
